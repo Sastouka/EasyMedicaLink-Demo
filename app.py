@@ -9,7 +9,8 @@ app = Flask(
     static_url_path='/static',
     template_folder='templates'
 )
-app.secret_key = "votre_cle_secrete"
+# Utiliser une clé secrète depuis les variables d'environnement
+app.secret_key = os.environ.get("SECRET_KEY", "dev")
 
 # ───────────── 2. Thèmes
 import theme
@@ -64,11 +65,13 @@ app.register_blueprint(rdv_bp, url_prefix="/rdv")
 app.register_blueprint(facturation_bp)
 app.register_blueprint(statistique_bp, url_prefix="/statistique")
 
-# ───────────── 7. Racine & sécurisation
+# ───────────── 7. Route racine
 @app.route("/", methods=["GET"])
 def root():
+    # Si non connecté, redirige vers login ; sinon vers accueil
     return redirect(url_for("login.login")) if "email" not in session else redirect(url_for("accueil.accueil"))
 
+# ───────────── 8. Sécurisation des routes
 @app.before_request
 def require_login():
     allowed = {
@@ -100,10 +103,10 @@ def require_login():
     if request.endpoint not in allowed and "email" not in session:
         return redirect(url_for("login.login"))
 
-# ───────────── 8. Autres petites routes
+# ───────────── 9. Autres petites routes
 register_routes(app)
 
-# ───────────── 9. Configuration PWA hors-ligne
+# ───────────── 10. Configuration PWA hors-ligne
 with app.app_context():
     offline_urls = [
         rule.rule for rule in app.url_map.iter_rules()
@@ -112,7 +115,7 @@ with app.app_context():
     offline_urls.append('/offline')
     app.config['PWA_OFFLINE_URLS'] = offline_urls
 
-# ───────────── 10. Page de secours hors-ligne
+# ───────────── 11. Page de secours hors-ligne
 @app.route("/offline")
 def offline():
     return render_template_string("""
@@ -135,7 +138,7 @@ def offline():
 </html>
 """), 200
 
-# ───────────── 11. Lancement
+# ───────────── 12. Lancement
 if __name__ == "__main__":
     try:
         webbrowser.open("http://127.0.0.1:3000/login")

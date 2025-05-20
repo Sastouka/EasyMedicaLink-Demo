@@ -138,7 +138,7 @@ login_template = """
   <!-- QR codes -->
   <div class='d-flex gap-3 my-4 flex-column flex-md-row'>
     <div class='text-center flex-fill'><canvas id='qrLocal' width='120' height='120'></canvas>
-      <div class='small mt-2'>localhost</div></div>
+      <div class='small mt-2'>EasyMedicaLink Web</div></div>
     <div class='text-center flex-fill'><canvas id='qrLan' width='120' height='120'></canvas>
       <div class='small mt-2'>réseau local</div></div>
   </div>
@@ -155,7 +155,7 @@ login_template = """
 <script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
 <script src='https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js'></script>
 <script>
-  new QRious({element:document.getElementById('qrLocal'),value:'http://127.0.0.1:3000',size:120,foreground:'#1a73e8'});
+  new QRious({element:document.getElementById('qrLocal'),value:'https://easymedicalink-demo.onrender.com/',size:120,foreground:'#1a73e8'});
   new QRious({element:document.getElementById('qrLan'),  value:'{{ url_lan }}',size:120,foreground:'#0d9488'});
 </script></body></html>"""
 

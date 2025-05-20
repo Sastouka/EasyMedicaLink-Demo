@@ -171,10 +171,10 @@ def stats_home():
         if "ID" in df_patient.columns and "ID" in df_consult.columns:
             df_patient = df_patient[df_patient["ID"].isin(df_consult["ID"].unique())]
 
-    # 7. Aucun résultat ?
+    # 7. Aucun résultat ? On flash un warning mais on continue le rendu
     if all(d.empty for d in (df_consult, df_patient, df_facture)):
         flash("Aucune donnée disponible pour la période sélectionnée.", "warning")
-        return redirect(url_for(".stats_home"))
+        # on ne redirige plus, on laisse metrics = 0 et charts = {} pour l'affichage
 
     # 8. KPI
     metrics = {
