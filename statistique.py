@@ -40,8 +40,6 @@ from reportlab.lib.utils import ImageReader
 import utils
 import theme
 
-locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
-
 statistique_bp = Blueprint("statistique", __name__, url_prefix="/statistique")
 
 # Styles ReportLab
