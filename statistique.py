@@ -4,6 +4,13 @@ import os
 import io
 import re
 import locale
+
+try:
+    # tentative de passer en français
+    locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
+except locale.Error:
+    # échec (locale non disponible) → on retombe sur le locale système
+    locale.setlocale(locale.LC_TIME, '')
 import logging
 from datetime import datetime
 from functools import lru_cache
