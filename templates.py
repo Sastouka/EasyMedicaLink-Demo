@@ -802,9 +802,9 @@ document.addEventListener('DOMContentLoaded', function() {
       <h1 class="text-center mb-2 header-item">
         <i class="fas fa-hospital me-2"></i>{{ config.nom_clinique or config.cabinet or 'EasyMedicalink' }}
       </h1>
-      <div class="d-flex justify-content-center gap-4">
+      <div class="d-flex justify-content-center gap-4 flex-wrap">
         <div class="d-flex align-items-center header-item">
-          <i class="fas fa-user-md me-2"></i><span>{{ config.doctor_name }}</span>
+          <i class="fas fa-user-md me-2"></i><span style="white-space: nowrap;">{{ config.doctor_name }}</span>
         </div>
         <div class="d-flex align-items-center header-item">
           <i class="fas fa-map-marker-alt me-2"></i><span>{{ config.location }}</span>
@@ -814,7 +814,8 @@ document.addEventListener('DOMContentLoaded', function() {
         <i class="fas fa-calendar-day me-2"></i>{{ current_date }}
       </p>
     </div>
-
+  </div>
+</div>
 
     <div class="card-body">
       <form method="POST" enctype="multipart/form-data" id="mainForm">

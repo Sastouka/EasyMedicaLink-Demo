@@ -1,6 +1,8 @@
+# routes.py
 from __future__ import annotations
 
 import os
+import pandas as pd 
 import uuid
 from datetime import datetime
 from typing import Dict
@@ -42,51 +44,54 @@ def register_routes(app):
     def index():
         import theme
         from pathlib import Path
+        import pandas as pd  # Ajout de l'import manquant
+        from datetime import datetime
 
-        config      = _config()
+        config = _config()
         theme_names = list(theme.THEMES.keys())
         utils.background_file = config.get("background_file_path")
 
         # 1️⃣ Charger la liste "de base" depuis Excel ou constantes par défaut
         if os.path.exists(LISTS_FILE):
-            df_lists      = utils.pd.read_excel(LISTS_FILE, sheet_name=0, dtype=str).fillna('')
-            base_meds     = df_lists['Medications'].dropna().astype(str).tolist()
+            df_lists = utils.pd.read_excel(LISTS_FILE, sheet_name=0, dtype=str).fillna('')
+            base_meds = df_lists['Medications'].dropna().astype(str).tolist()
             base_analyses = df_lists['Analyses'].dropna().astype(str).tolist()
-            base_radios   = df_lists['Radiologies'].dropna().astype(str).tolist()
+            base_radios = df_lists['Radiologies'].dropna().astype(str).tolist()
         else:
-            base_meds     = utils.default_medications_options
+            base_meds = utils.default_medications_options
             base_analyses = utils.default_analyses_options
-            base_radios   = utils.default_radiologies_options
+            base_radios = utils.default_radiologies_options
 
         # 2️⃣ Récupérer les ajouts du menu Paramètres
-        cfg_meds     = config.get("medications_options", [])
+        cfg_meds = config.get("medications_options", [])
         cfg_analyses = config.get("analyses_options", [])
-        cfg_radios   = config.get("radiologies_options", [])
+        cfg_radios = config.get("radiologies_options", [])
 
         # 2️⃣5️⃣ Récupérer la dernière consultation
         consult_file = Path(utils.EXCEL_FILE_PATH)
         if consult_file.exists():
-            df_last       = utils.pd.read_excel(consult_file, sheet_name=0, dtype=str).fillna('')
-            last_consult  = df_last.iloc[-1].to_dict()
+            df_last = utils.pd.read_excel(consult_file, sheet_name=0, dtype=str).fillna('')
+            last_consult = df_last.iloc[-1].to_dict()
         else:
             last_consult = {}
 
         # 3️⃣ Fusionner Excel + Paramètres en supprimant les doublons
-        meds_options        = list(dict.fromkeys(base_meds     + cfg_meds))
-        analyses_options    = list(dict.fromkeys(base_analyses + cfg_analyses))
-        radiologies_options = list(dict.fromkeys(base_radios   + cfg_radios))
+        meds_options = list(dict.fromkeys(base_meds + cfg_meds))
+        analyses_options = list(dict.fromkeys(base_analyses + cfg_analyses))
+        radiologies_options = list(dict.fromkeys(base_radios + cfg_radios))
 
         saved_medications, saved_analyses, saved_radiologies = [], [], []
 
         if request.method == "POST":
-            form_data        = request.form.to_dict()
-            medication_list  = request.form.getlist("medications_list")
-            analyses_list    = request.form.getlist("analyses_list")
+            form_data = request.form.to_dict()
+            consultation_date = request.form.get("consultation_date", datetime.now().strftime("%Y-%m-%d"))  # Correction ici
+            medication_list = request.form.getlist("medications_list")
+            analyses_list = request.form.getlist("analyses_list")
             radiologies_list = request.form.getlist("radiologies_list")
-
-            consultation_date = datetime.now().strftime("%Y-%m-%d")
-            patient_id        = form_data.get("patient_id", "").strip()
-            patient_name      = form_data.get("patient_name", "").strip()
+            
+            # Définition précoce des variables critiques
+            patient_id = form_data.get("patient_id", "").strip()
+            patient_name = form_data.get("patient_name", "").strip()
 
             if not patient_id:
                 return render_template_string(
@@ -97,9 +102,9 @@ def register_routes(app):
                     redirect_url=url_for("index"),
                 )
 
-            # Vérification de l'unicité ID ↔ nom
+            # Vérification d'unicité ID/nom
             if os.path.exists(utils.EXCEL_FILE_PATH):
-                df_existing = utils.pd.read_excel(utils.EXCEL_FILE_PATH, sheet_name=0, dtype=str)
+                df_existing = pd.read_excel(utils.EXCEL_FILE_PATH, sheet_name=0, dtype=str)
                 if patient_id in df_existing["patient_id"].astype(str).tolist():
                     existing_name = df_existing.loc[
                         df_existing["patient_id"].astype(str) == patient_id,
@@ -107,73 +112,107 @@ def register_routes(app):
                     ].iloc[0]
                     if existing_name.strip().lower() != patient_name.strip().lower():
                         flash("L'ID existe déjà avec un autre patient.", "error")
-                        return render_template_string(
-                            alert_template,
-                            alert_type="error",
-                            alert_title="Erreur",
-                            alert_text="ID déjà associé à un autre patient.",
-                            redirect_url=url_for("index"),
-                        )
+                        return redirect(url_for("index"))
 
-            # Chargement ou création du DataFrame de consultation
+            # Gestion de la fusion des données existantes
+            new_entry = True
             if os.path.exists(utils.EXCEL_FILE_PATH):
-                df = utils.pd.read_excel(utils.EXCEL_FILE_PATH, sheet_name=0, dtype=str)
-            else:
-                df = utils.pd.DataFrame(columns=[
-                    "consultation_date","patient_id","patient_name","date_of_birth","gender","age",
-                    "patient_phone","antecedents","clinical_signs","bp","temperature","heart_rate",
-                    "respiratory_rate","diagnosis","medications","analyses","radiologies",
-                    "certificate_category","certificate_content","rest_duration","doctor_comment",
-                    "consultation_id",
-                ])
+                df = pd.read_excel(utils.EXCEL_FILE_PATH, sheet_name=0, dtype=str)
+                
+                # Conversion des dates
+                df['date_obj'] = pd.to_datetime(df['consultation_date'].str[:10], errors='coerce').dt.date
+                current_date_obj = datetime.strptime(consultation_date, "%Y-%m-%d").date()
+                
+                # Recherche d'entrée existante
+                mask = (df['patient_id'] == patient_id) & (df['date_obj'] == current_date_obj)
+                existing_entries = df[mask]
+                
+                if not existing_entries.empty:
+                    new_entry = False
+                    idx = existing_entries.index[0]
+                    
+                    # Modifier la fonction merge_items pour gérer les NaN et les types non-str
+                    def merge_items(existing, new):
+                        existing_str = str(existing) if not pd.isna(existing) else ''
+                        # Handle cases where splitting an empty string results in ['']
+                        existing_list = [item.strip() for item in existing_str.split('; ') if item.strip()] if existing_str else []
+                        merged = list(dict.fromkeys(existing_list + new))
+                        return merged
 
-            # Préparation de la nouvelle ligne
-            new_row = {
-                "consultation_date":   consultation_date,
-                "patient_id":          patient_id,
-                "patient_name":        patient_name,
-                "date_of_birth":       form_data.get("date_of_birth", "").strip(),
-                "gender":              form_data.get("gender", "").strip(),
-                "age":                 form_data.get("patient_age", "").strip(),
-                "patient_phone":       form_data.get("patient_phone", "").strip(),
-                "antecedents":         form_data.get("antecedents", "").strip(),
-                "clinical_signs":      form_data.get("clinical_signs", "").strip(),
-                "bp":                  form_data.get("bp", "").strip(),
-                "temperature":         form_data.get("temperature", "").strip(),
-                "heart_rate":          form_data.get("heart_rate", "").strip(),
-                "respiratory_rate":    form_data.get("respiratory_rate", "").strip(),
-                "diagnosis":           form_data.get("diagnosis", "").strip(),
-                "medications":         "; ".join(medication_list),
-                "analyses":            "; ".join(analyses_list),
-                "radiologies":         "; ".join(radiologies_list),
-                "certificate_category": form_data.get("certificate_category", "").strip(),
-                "certificate_content":  "",
-                "rest_duration":        utils.extract_rest_duration(form_data.get("certificate_content", "")),
-                "doctor_comment":       form_data.get("doctor_comment", "").strip(),
-                "consultation_id":      str(uuid.uuid4()),
-            }
+                    # Utilisation dans la mise à jour des champs :
+                    df.at[idx, 'medications'] = '; '.join(merge_items(df.at[idx, 'medications'], medication_list))
+                    df.at[idx, 'analyses'] = '; '.join(merge_items(df.at[idx, 'analyses'], analyses_list))
+                    df.at[idx, 'radiologies'] = '; '.join(merge_items(df.at[idx, 'radiologies'], radiologies_list))
+                    
+                    # Mise à jour des autres champs, y compris le certificat
+                    update_fields = [
+                        'clinical_signs', 'bp', 'temperature', 'heart_rate', 
+                        'respiratory_rate', 'diagnosis', 'doctor_comment',
+                        'certificate_category', 'certificate_content' # Ajout des champs de certificat
+                    ]
+                    for field in update_fields:
+                        if form_data.get(field):
+                            df.at[idx, field] = form_data[field]
+                    
+                    df.drop('date_obj', axis=1, inplace=True)
+                    df.to_excel(utils.EXCEL_FILE_PATH, index=False)
+                    flash("Consultation mise à jour avec succès", "success")
 
-            # Sauvegarde de la consultation
-            df = utils.pd.concat([df, utils.pd.DataFrame([new_row])], ignore_index=True)
-            df.to_excel(utils.EXCEL_FILE_PATH, index=False)
+            if new_entry:
+                # Création d'une nouvelle entrée
+                new_row = {
+                    "consultation_date": consultation_date,
+                    "patient_id": patient_id,
+                    "patient_name": patient_name,
+                    "date_of_birth": form_data.get("date_of_birth", "").strip(),
+                    "gender": form_data.get("gender", "").strip(),
+                    "age": form_data.get("patient_age", "").strip(),
+                    "patient_phone": form_data.get("patient_phone", "").strip(),
+                    "antecedents": form_data.get("antecedents", "").strip(),
+                    "clinical_signs": form_data.get("clinical_signs", "").strip(),
+                    "bp": form_data.get("bp", "").strip(),
+                    "temperature": form_data.get("temperature", "").strip(),
+                    "heart_rate": form_data.get("heart_rate", "").strip(),
+                    "respiratory_rate": form_data.get("respiratory_rate", "").strip(),
+                    "diagnosis": form_data.get("diagnosis", "").strip(),
+                    "medications": "; ".join(medication_list),
+                    "analyses": "; ".join(analyses_list),
+                    "radiologies": "; ".join(radiologies_list),
+                    "certificate_category": form_data.get("certificate_category", "").strip(),
+                    "certificate_content": form_data.get("certificate_content", "").strip(), # Assurez-vous que le contenu est bien pris du formulaire
+                    "rest_duration": utils.extract_rest_duration(form_data.get("certificate_content", "")),
+                    "doctor_comment": form_data.get("doctor_comment", "").strip(),
+                    "consultation_id": str(uuid.uuid4()),
+                }
+
+                # Si c'est une nouvelle entrée, concaténer avec le DataFrame existant
+                # Si le DataFrame est vide, créer un nouveau DataFrame avec la nouvelle ligne
+                if 'df' in locals() and not df.empty:
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                else:
+                    df = pd.DataFrame([new_row])
+
+                df.to_excel(utils.EXCEL_FILE_PATH, index=False)
+                flash("Nouvelle consultation enregistrée", "success")
+            
+            # Store patient_id and patient_name in session for pre-filling "Suivi" tab
+            session['prefill_suivi_patient_id'] = patient_id
+            session['prefill_suivi_patient_name'] = patient_name
+
+
             utils.load_patient_data()
-            flash("Données du patient enregistrées.", "success")
-            saved_medications, saved_analyses, saved_radiologies = (
-                medication_list,
-                analyses_list,
-                radiologies_list,
-            )
+            saved_medications, saved_analyses, saved_radiologies = medication_list, analyses_list, radiologies_list
 
-        # 4️⃣ Lecture en continu de MEDICALINK_FILES/Excel/ConsultationData.xlsx
+        # 4️⃣ Lecture des données pour l'affichage
         consult_path = Path(utils.EXCEL_FILE_PATH)
         if consult_path.exists():
-            df_consult = utils.pd.read_excel(consult_path, sheet_name=0, dtype=str).fillna('')
+            df_consult = pd.read_excel(consult_path, sheet_name=0, dtype=str).fillna('')
         else:
-            df_consult = utils.pd.DataFrame(columns=[
-                "consultation_date","patient_id","patient_name","date_of_birth","gender","age",
-                "patient_phone","antecedents","clinical_signs","bp","temperature","heart_rate",
-                "respiratory_rate","diagnosis","medications","analyses","radiologies",
-                "certificate_category","certificate_content","rest_duration","doctor_comment",
+            df_consult = pd.DataFrame(columns=[
+                "consultation_date", "patient_id", "patient_name", "date_of_birth", "gender", "age",
+                "patient_phone", "antecedents", "clinical_signs", "bp", "temperature", "heart_rate",
+                "respiratory_rate", "diagnosis", "medications", "analyses", "radiologies",
+                "certificate_category", "certificate_content", "rest_duration", "doctor_comment",
                 "consultation_id",
             ])
         consult_rows = df_consult.to_dict(orient="records")
@@ -190,6 +229,10 @@ def register_routes(app):
             }
             for pid in utils.patient_ids
         }
+
+        # Retrieve prefill data from session and clear it
+        prefill_suivi_patient_id = session.pop('prefill_suivi_patient_id', None)
+        prefill_suivi_patient_name = session.pop('prefill_suivi_patient_name', None)
 
         return render_template_string(
             main_template,
@@ -209,7 +252,9 @@ def register_routes(app):
             saved_radiologies=saved_radiologies,
             theme_names=theme_names,
             consult_rows=consult_rows,
-            last_consult=last_consult
+            last_consult=last_consult,
+            prefill_suivi_patient_id=prefill_suivi_patient_id, # Pass to template
+            prefill_suivi_patient_name=prefill_suivi_patient_name # Pass to template
         )
 
     # ---------------------------------------------------------------------
@@ -448,5 +493,3 @@ def register_routes(app):
             return send_file(file_path, as_attachment=True)
         flash("Le fichier n'existe pas.", "error")
         return redirect(url_for("index"))
-
-

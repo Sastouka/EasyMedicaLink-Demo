@@ -324,16 +324,10 @@ def facturation_home():
 
     # ---------- 2. Base patients ------------------------------------------
     info_path = os.path.join(excel_dir, 'info_Base_patient.xlsx')
-
     if os.path.exists(info_path):
         df_pat        = pd.read_excel(info_path, dtype=str)
         patients_info = df_pat.to_dict(orient='records')
-
-        # ── Garde-fou : uniquement s’il y a au moins une ligne ────────────
-        if not df_pat.empty:
-            last_patient = df_pat.iloc[-1].to_dict()
-        else:
-            last_patient = {}
+        last_patient  = df_pat.iloc[-1].to_dict() if not df_pat.empty else {}
     else:
         patients_info = []
         last_patient  = {}
@@ -450,43 +444,47 @@ def facturation_home():
         ))
 
     # ---------- 4. Variables GET (form par défaut) -------------------------
-    today_iso       = date.today().isoformat()
-    date_key        = today_iso.replace('-', '')
-    existing_pdf    = [
+    from datetime import date  # assurez-vous d'importer date
+    today_iso         = date.today().isoformat()
+    date_key          = today_iso.replace('-', '')
+    existing_pdf      = [
         fn for fn in os.listdir(pdf_dir)
         if fn.startswith(f"Facture_{date_key}")
     ]
-    numero_default  = f"{date_key}-{len(existing_pdf)+1:03d}"
-    vat_default     = config.get('vat', 20.0)
+    numero_default    = f"{date_key}-{len(existing_pdf)+1:03d}"
+    vat_default       = config.get('vat', 20.0)
     selected_currency = config.get('currency', 'EUR')
 
     # ---------- 5. Données JSON-sûres pour le template ---------------------
     factures        = load_invoices()
     report_summary  = generate_report_summary()
 
-    services_json        = json.loads(json.dumps(services_by_category, default=_json_default))
-    patients_json        = json.loads(json.dumps(patients_info,       default=_json_default))
-    factures_json        = json.loads(json.dumps(factures,            default=_json_default))
-    report_summary_json  = json.loads(json.dumps(report_summary,      default=_json_default))
+    services_json       = json.loads(json.dumps(services_by_category, default=_json_default))
+    patients_json       = json.loads(json.dumps(patients_info,       default=_json_default))
+    factures_json       = json.loads(json.dumps(factures,            default=_json_default))
+    report_summary_json = json.loads(json.dumps(report_summary,      default=_json_default))
+
+    # ---------- Afficher un message si aucune facture ---------------------
+    if not factures_json:
+        flash("Aucune donnée de facturation disponible.", "warning")
 
     # ---------- 6. Rendu ---------------------------------------------------
     return render_template_string(
         facturation_template,
-        config=config,
-        theme_vars=theme_vars,
-        theme_names=list(theme.THEMES.keys()),
-        services_by_category=services_json,
-        patients_info=patients_json,
-        last_patient=last_patient,
-        today=today_iso,
-        numero_default=numero_default,
-        vat_default=vat_default,
-        currency=selected_currency,
-        background_files=background_files,
-        factures=factures_json,
-        report_summary=report_summary_json
+        config               = config,
+        theme_vars           = theme_vars,
+        theme_names          = list(theme.THEMES.keys()),
+        services_by_category = services_json,
+        patients_info        = patients_json,
+        last_patient         = last_patient,
+        today                = today_iso,
+        numero_default       = numero_default,
+        vat_default          = vat_default,
+        currency             = selected_currency,
+        background_files     = background_files,
+        factures             = factures_json,
+        report_summary       = report_summary_json
     )
-
 
 @facturation_bp.route('/add_service', methods=['POST'])
 def add_service():

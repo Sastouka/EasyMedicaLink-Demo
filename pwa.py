@@ -21,7 +21,7 @@ ICON_DIR.mkdir(parents=True, exist_ok=True)
 def _manifest():
     return {
         "name":             "EasyMedicalink",
-        "short_name":       "Medicalink",
+        "short_name":       "EML",
         "start_url":        "/login",
         "scope":            "/",
         "display":          "standalone",

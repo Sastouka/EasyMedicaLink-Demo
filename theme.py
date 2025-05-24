@@ -6,7 +6,45 @@ from flask import session, current_app
 
 # Définition des thèmes :
 # Chaque thème est un dict de variables CSS (--var-name : valeur).
-THEMES = {
+THEMES = {    "turquoise": {
+        # These colors are from the login_template's .btn-gradient for a strong turquoise feel
+        "gradient-start-color": "#1a73e8", # A blueish start from login.py
+        "gradient-end-color": "#0d9488",   # The prominent turquoise/teal from login.py
+        "text-color": "#0b3c5d",           # A dark blue, similar to your light theme text
+        "primary-color": "#0d9488",        # Main turquoise for elements
+        "secondary-color": "#1a73e8",      # Secondary blue for links/accents
+        "button-bg": "#0d9488",            # Button background, can also be a gradient
+        "button-text": "#ffffff",
+        "card-bg": "#ffffff",
+        "card-shadow": "rgba(0, 60, 100, 0.1)", # Similar to light theme shadow
+    },    "deep_ocean": {
+        "bg-color": "#e0f2f7",
+        "text-color": "#001a33",
+        "primary-color": "#000080",
+        "secondary-color": "#4682B4",
+        "button-bg": "#000080",
+        "button-text": "#ffffff",
+        "card-bg": "#ffffff",
+        "card-shadow": "rgba(0, 0, 128, 0.2)",
+    },    "rose": {
+        "bg-color": "#fdf2f8",
+        "text-color": "#831843",
+        "primary-color": "#db2777",
+        "secondary-color": "#be185d",
+        "button-bg": "#db2777",
+        "button-text": "#ffffff",
+        "card-bg": "#ffffff",
+        "card-shadow": "rgba(219, 39, 119, 0.2)",
+    },    "warm_sunset": {
+        "bg-color": "#fff3e0",
+        "text-color": "#8b4513",
+        "primary-color": "#FF7F50",
+        "secondary-color": "#FFD700",
+        "button-bg": "#FF7F50",
+        "button-text": "#ffffff",
+        "card-bg": "#ffffff",
+        "card-shadow": "rgba(255, 127, 80, 0.2)",
+    },
     "light": {
         "bg-color":      "#f5f9ff",      # Fond clair, hygiène et propreté
         "text-color":    "#0b3c5d",      # Bleu marine confortable
@@ -57,16 +95,6 @@ THEMES = {
         "card-bg":       "#ffffff",
         "card-shadow":   "rgba(46, 125, 50, 0.2)",
     },
-    "rose": {
-        "bg-color": "#fdf2f8",
-        "text-color": "#831843",
-        "primary-color": "#db2777",
-        "secondary-color": "#be185d",
-        "button-bg": "#db2777",
-        "button-text": "#ffffff",
-        "card-bg": "#ffffff",
-        "card-shadow": "rgba(219, 39, 119, 0.2)",
-    },
     "slate": {
         "bg-color": "#f8fafc",
         "text-color": "#0f172a",
@@ -107,10 +135,20 @@ THEMES = {
         "card-bg": "#ffffff",
         "card-shadow": "rgba(16, 185, 129, 0.2)",
     },
+    "royal_blue": {
+        "bg-color": "#e6f0ff",
+        "text-color": "#002060",
+        "primary-color": "#4169E1",
+        "secondary-color": "#87CEEB",
+        "button-bg": "#4169E1",
+        "button-text": "#ffffff",
+        "card-bg": "#ffffff",
+        "card-shadow": "rgba(65, 105, 225, 0.2)",
+    },
 }
 
 # Valeur par défaut
-DEFAULT_THEME = "light"
+DEFAULT_THEME = "turquoise"
 
 def get_theme(name: str) -> dict:
     """Retourne le dict de variables CSS pour un thème donné."""

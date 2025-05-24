@@ -64,31 +64,32 @@ class LandscapeTemplate(PageTemplate):
 
 def add_header_footer(canvas_obj, doc):
     canvas_obj.saveState()
-    canvas_obj.setFont("Helvetica-Bold", 12)
-    canvas_obj.drawString(2*cm, doc.pagesize[1] - 2*cm,
-                          f"Rapport statistique • {datetime.now().strftime('%d %B %Y')}")
+    canvas_obj.setFont("Helvetica-Bold", 14)
+    canvas_obj.drawCentredString(
+        doc.pagesize[0]/2,  # Centre horizontal
+        doc.pagesize[1] - 2*cm,  # Même position verticale
+        f"Rapport statistique • {datetime.now().strftime('%d %B %Y')}"
+    )
     canvas_obj.setFont("Helvetica", 8)
     canvas_obj.drawCentredString(doc.pagesize[0]/2, 1*cm,
                                  f"Page {canvas_obj.getPageNumber()}")
     canvas_obj.restoreState()
 
 def to_mpl_color(c):
-    """
-    Convertit un reportlab.lib.colors.Color ou une chaîne hexadécimale
-    en chaîne hexadécimale acceptée par Matplotlib.
-    """
-    # Pour un objet Color de ReportLab, on utilise hexval()
+    """Convertit tous les formats ReportLab/autres en format Matplotlib valide."""
+    # Conversion des objets Color de ReportLab
     if hasattr(c, 'hexval'):
-        val = c.hexval()
-        # Suppression du préfixe '0x' éventuel
-        if val.lower().startswith('0x'):
-            val = val[2:]
-        # Retourne la couleur au format '#rrggbb'
-        return f"#{val}"
-    # Pour une chaîne, on s'assure du préfixe '#'
-    if isinstance(c, str):
-        return c if c.startswith('#') else f"#{c}"
-    # Sinon, on retourne tel quel (tuple RGBA, etc.)
+        hex_val = c.hexval()
+        return f"#{hex_val[2:]}" if hex_val.startswith('0x') else f"#{hex_val}"
+    
+    # Conversion des tuples RGBA (valeurs 0-1)
+    if isinstance(c, tuple) and len(c) in (3, 4):
+        return (c[0], c[1], c[2], c[3]) if len(c) == 4 else (c[0], c[1], c[2])
+    
+    # Conversion des chaînes sans préfixe #
+    if isinstance(c, str) and not c.startswith('#'):
+        return f"#{c}"
+    
     return c
 
 def draw_chart(canvas_obj, plot_func, title, x, y, w, h, color):
@@ -123,62 +124,70 @@ def stats_home():
         return redirect(url_for("accueil.accueil"))
 
     # 2. Chargement des données
-    df_map     = _load_all_excels(utils.EXCEL_FOLDER)
-    df_consult = df_map.get("ConsultationData.xlsx",  pd.DataFrame())
+    df_map = _load_all_excels(utils.EXCEL_FOLDER)
+    df_consult = df_map.get("ConsultationData.xlsx", pd.DataFrame())
     df_patient = df_map.get("info_Base_patient.xlsx", pd.DataFrame())
-    df_facture = df_map.get("factures.xlsx",          pd.DataFrame())
+    df_facture = df_map.get("factures.xlsx", pd.DataFrame())
 
-    # 3. Récupération filtres
+    # 3. Récupération filtres (INITIALISATION EXPLICITE)
     start_str = request.args.get("start_date", "")
-    end_str   = request.args.get("end_date", "")
-    start_dt = end_dt = None
+    end_str = request.args.get("end_date", "")
+    start_dt = None  # <-- Initialisation obligatoire
+    end_dt = None    # <-- Initialisation obligatoire
+
     try:
         if start_str:
             start_dt = datetime.strptime(start_str, "%Y-%m-%d")
         if end_str:
-            end_dt   = datetime.strptime(end_str,   "%Y-%m-%d")
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d")
     except ValueError:
         flash("Format de date invalide, utilisez YYYY-MM-DD.", "warning")
         return redirect(url_for(".stats_home"))
 
-    # 4. Filtrage des consultations
+    # 4. Filtrage des consultations (GESTION DES VALEURS NULLES)
     if not df_consult.empty:
         df_consult["consultation_date"] = pd.to_datetime(
             df_consult["consultation_date"].astype(str).str.strip(),
             errors="coerce"
         )
-        if start_dt and end_dt:
-            df_consult = df_consult[
-                (df_consult["consultation_date"] >= start_dt) &
-                (df_consult["consultation_date"] <= end_dt)
-            ]
-
+        # Correction ici ▼
+        mask = pd.Series([True] * len(df_consult), index=df_consult.index)  # <-- Série de True
+        if start_dt:
+            mask &= (df_consult["consultation_date"] >= start_dt)
+        if end_dt:
+            mask &= (df_consult["consultation_date"] <= end_dt)
+        df_consult = df_consult[mask]
+        
     # 5. Filtrage des factures
-    if not df_facture.empty and start_dt and end_dt:
+    if not df_facture.empty and (start_dt or end_dt):
         date_col = _find_column(df_facture, ["date", "jour", "day"])
         if date_col:
             df_facture[date_col] = pd.to_datetime(
                 df_facture[date_col].astype(str).str.strip(),
                 errors="coerce"
             )
-            df_facture = df_facture[
-                (df_facture[date_col] >= start_dt) &
-                (df_facture[date_col] <= end_dt)
-            ]
+            mask = True
+            if start_dt:
+                mask &= (df_facture[date_col] >= start_dt)
+            if end_dt:
+                mask &= (df_facture[date_col] <= end_dt)
+            df_facture = df_facture[mask]
 
     # 6. Filtrage des patients : on ne garde que ceux ayant consulté dans la période
     if not df_patient.empty and not df_consult.empty:
         if "ID" in df_patient.columns and "ID" in df_consult.columns:
             df_patient = df_patient[df_patient["ID"].isin(df_consult["ID"].unique())]
 
-    # 7. Aucun résultat ? On flash un warning mais on continue le rendu
+    # 7. Vérification des données disponibles pour l'export
+    data_available = not (df_consult.empty and df_facture.empty)
+
+    # 7.a. Aucun résultat ? On flash un warning mais on continue le rendu
     if all(d.empty for d in (df_consult, df_patient, df_facture)):
-        flash("Aucune donnée disponible pour la période sélectionnée.", "warning")
-        # on ne redirige plus, on laisse metrics = 0 et charts = {} pour l'affichage
+        flash("Aucune donnée disponible pour la période sélectionnée.", "warning")   
 
     # 8. KPI
     metrics = {
-        "total_consult":  len(df_consult),
+        "total_factures":  len(df_facture),  # SEULE MODIFICATION ICI
         "total_patients": df_patient["ID"].nunique() if "ID" in df_patient.columns else 0,
         "total_revenue":  _total_revenue(df_facture),
     }
@@ -222,9 +231,27 @@ def stats_home():
         currency=utils.load_config().get("currency", "EUR"),
         start_date=start_str,
         end_date=end_str,
-        today=datetime.now().strftime("%Y-%m-%d")
-    )
+        today=datetime.now().strftime("%Y-%m-%d"),
+         data_available=data_available,  # <-- Nouveau paramètre
+)
 
+    # 9d. Tranches d’âge
+    charts.update(_age_distribution(df_patient))
+
+    # 10. Rendu
+    return render_template_string(
+        _TEMPLATE,
+        config=utils.load_config(),
+        theme_vars=theme.current_theme(),
+        metrics=metrics,
+        charts=charts,
+        theme_names=list(theme.THEMES.keys()),
+        currency=utils.load_config().get("currency", "EUR"),
+        start_date=start_str,
+        end_date=end_str,
+        today=datetime.now().strftime("%Y-%m-%d"),
+         data_available=data_available,  # <-- Nouveau paramètre
+)
 
 @statistique_bp.route("/export_pdf", methods=["GET"])
 def export_pdf():
@@ -314,28 +341,37 @@ def export_pdf():
         abort(500, "Erreur lors de la génération du rapport")
 
 # ────────────────────────────────────────────────────────────
-# Helpers (inchangés)
+# Helpers
 # ────────────────────────────────────────────────────────────
-def process_consultations(df, start_dt, end_dt):
-    if not df.empty:
-        df["consultation_date"] = pd.to_datetime(
-            df["consultation_date"], errors="coerce"
-        )
-        if start_dt and end_dt:
-            return df[
-                (df["consultation_date"] >= start_dt) & (df["consultation_date"] <= end_dt)
-            ]
+def process_consultations(df, start_dt=None, end_dt=None):
+    if df.empty:
+        return df
+    df["consultation_date"] = pd.to_datetime(df["consultation_date"], errors="coerce")
+    if start_dt or end_dt:
+        mask = True
+        if start_dt:
+            mask &= (df["consultation_date"] >= start_dt)
+        if end_dt:
+            mask &= (df["consultation_date"] <= end_dt)
+        return df[mask]
     return df
 
-def process_factures(df, start_dt, end_dt):
+def process_factures(df, start_dt=None, end_dt=None):
     date_col = _find_column(df, ["date", "jour", "day"])
-    if date_col and start_dt and end_dt:
+    if date_col and (start_dt or end_dt):
         df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        return df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
+        mask = True
+        if start_dt:
+            mask &= (df[date_col] >= start_dt)
+        if end_dt:
+            mask &= (df[date_col] <= end_dt)
+        return df[mask]
     return df
 
 def prepare_table_data(df):
     """Prépare data pour le tableau ReportLab avec Paragraph pour retours à la ligne."""
+    if df.empty:
+        return []
     headers = [Paragraph(str(c), styles['HeaderStyle']) for c in df.columns]
     body = []
     body_style = ParagraphStyle(
@@ -347,6 +383,7 @@ def prepare_table_data(df):
     return [headers] + body
 
 def plot_consultations(ax, df, color):
+    color = to_mpl_color(color)
     """Trace le bar chart des consultations mensuelles."""
     if df.empty:
         return False
@@ -357,6 +394,7 @@ def plot_consultations(ax, df, color):
     return True
 
 def plot_ca(ax, df, color):
+    color = to_mpl_color(color)
     """Trace le bar chart du chiffre d’affaires mensuel."""
     if df.empty:
         return False
@@ -444,23 +482,36 @@ def _age_distribution(df_patient: pd.DataFrame) -> dict:
         return {"age_labels": labels, "age_values": [0]*11}
     bins = [0,3,6,12,15,18,30,40,50,60,70,120]
     df_age["group"] = pd.cut(df_age["age"], bins=bins, labels=labels, right=False)
-    grp = df_age.groupby("group")["age"].count().reindex(labels, fill_value=0)
+    grp = df_age.groupby("group", observed=False)["age"].count().reindex(labels, fill_value=0)
     return {"age_labels": grp.index.tolist(), "age_values": grp.values.tolist()}
 
-def _parse_age(value):
-    """Convertit « 23 ans 4 mois » ou « 23,4 » → float années."""
-    s = str(value).lower().strip()
-    if not s or s in {"nan","na"}:
-        return None
-    try:
-        return float(s.replace(",", "."))
-    except ValueError:
-        pass
-    m = re.search(r"(\d+)\s*(?:ans?|years?)?[\s,]*(\d+)?", s)
-    if m:
-        years, months = int(m.group(1)), int(m.group(2) or 0)
-        return years + months/12
-    return None
+def plot_genre_distribution(ax, df_patient, color):
+    """Répartition par sexe (camembert troué)."""
+    if df_patient.empty or "Sexe" not in df_patient.columns:
+        return False
+    
+    counts = df_patient["Sexe"].value_counts()
+    
+    # ▼ Modification de la ligne existante ▼
+    ax.pie(
+        counts, 
+        labels=counts.index, 
+        autopct='%1.1f%%', 
+        colors=[to_mpl_color(color), to_mpl_color(colors.HexColor("#E91E63"))],
+        wedgeprops={'width': 0.6}  # <-- Ajout de cette propriété
+    )
+    
+    return True
+
+def plot_age_distribution(ax, df_patient, color):
+    color = to_mpl_color(color)
+    """Tranches d'âge (histogramme)."""
+    if df_patient.empty or "DateNaissance" not in df_patient.columns:
+        return False
+    age_data = _age_distribution(df_patient)
+    ax.bar(age_data["age_labels"], age_data["age_values"], color=color)
+    ax.tick_params(axis='x', rotation=45)
+    return True 
 # --------------------------------------------------------------------------- #
 #  HTML – Amazon-style, sans onglets                                          #
 # --------------------------------------------------------------------------- #
@@ -487,7 +538,7 @@ _TEMPLATE = r"""
 </style>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>RDV – {{ config.nom_clinique or 'EasyMedicaLink' }}</title>
+<title>Statistiques – {{ config.nom_clinique or 'EasyMedicaLink' }}</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -652,16 +703,21 @@ _TEMPLATE = r"""
   <!-- Filtre par période et export PDF -->
   <form class="row g-2 mb-4 justify-content-center" method="get">
     <div class="col-auto">
-      <a href="{{ url_for('statistique.export_pdf', start_date=start_date, end_date=end_date) }}"
-         class="btn btn-outline-secondary">Générer Historique des Facturations en PDF</a>
+    <div class="col-auto">
+      <a href="{{ url_for('statistique.export_pdf', start_date=start_date, end_date=end_date) if data_available else '#' }}"
+        class="btn btn-outline-secondary {{ 'disabled pe-none' if not data_available }}"
+        {% if not data_available %}aria-disabled="true" tabindex="-1"{% endif %}>
+        <i class="fas fa-file-pdf me-2"></i>Générer le Rapport PDF
+      </a>
+    </div>
     </div>
   </form>
   <!-- KPI -->
   <div class="row g-4">
     <div class="col-12 col-lg-4">
       <div class="p-3 kpi-card h-100 text-center">
-        <div class="kpi-value">{{ metrics.total_consult }}</div>
-        <div class="kpi-label">Consultations totales</div>
+        <div class="kpi-value">{{ metrics.total_factures }}</div>
+        <div class="kpi-label">Nombre total des factures</div>
       </div>
     </div>
     <div class="col-12 col-lg-4">
@@ -796,6 +852,79 @@ if(CHARTS.age_labels?.length){
                      datasets:[{data:CHARTS.age_values,backgroundColor:COLORS.age,borderRadius:4}]},
     options:noLegend});
 }
+</script>
+<!-- Ajouter dans le <body> après la section des graphiques -->
+<div class="modal fade" id="dataAlertModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h5 class="modal-title">
+          <i class="fas fa-database me-2"></i>Données manquantes
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center gap-3">
+          <i class="fas fa-exclamation-triangle text-warning fs-2"></i>
+          <div>
+            <p class="mb-0">Impossible de générer le rapport car :</p>
+            <ul class="mt-2">
+              <li>Aucune consultation enregistrée</li>
+              <li>Aucun patient répertorié</li>
+              <li>Aucune facture disponible</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Styles pour le modal d'alerte */
+  #dataAlertModal .modal-content {
+    border: 2px solid var(--warning-color);
+    border-radius: 15px;
+    box-shadow: 0 0 15px rgba(255, 193, 7, 0.3);
+  }
+
+  #dataAlertModal .modal-header {
+    border-bottom: 2px dashed var(--warning-color);
+  }
+
+  #dataAlertModal ul {
+    list-style: none;
+    padding-left: 1.5rem;
+  }
+
+  #dataAlertModal ul li {
+    position: relative;
+    padding-left: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  #dataAlertModal ul li::before {
+    content: "❌";
+    position: absolute;
+    left: 0;
+  }
+</style>
+
+<!-- Modal d'alerte UNIQUEMENT ICI -->
+<div class="modal fade" id="dataAlertModal" tabindex="-1">
+  <!-- ... contenu du modal ... -->
+</div>
+
+<script>
+// Ajouter dans la section <script> existante
+document.addEventListener('DOMContentLoaded', function() {
+    {% if get_flashed_messages(category_filter=["warning"]) %}
+        new bootstrap.Modal(document.getElementById('dataAlertModal')).show();
+    {% endif %}
+});
 </script>
 </body>
 </html>

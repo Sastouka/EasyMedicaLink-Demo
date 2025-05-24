@@ -1,4 +1,4 @@
-# login.py — rôle Admin visible partout, mais création/reset ouverts à tous
+# login.py — rôle Admin visible partout, création/reset ouverts à tous
 import os
 import sys
 import json
@@ -21,6 +21,7 @@ from flask import (
     url_for,
     flash,
     session,
+    current_app
 )
 
 def generate_reset_token(length: int = 32) -> str:
@@ -101,63 +102,224 @@ login_template = """
 <!DOCTYPE html><html lang='fr'>
 {{ pwa_head()|safe }}
 <head>
-<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>Connexion</title>
-<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
-<link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>
-<style>
- body{background:#f0fafe}.card{border-radius:1rem;box-shadow:0 4px 20px rgba(0,0,0,.08)}
- .btn-med{background:linear-gradient(45deg,#1a73e8,#0d9488);color:#fff}
- canvas{border:1px solid #e0e0e0;border-radius:.5rem;box-shadow:0 2px 6px rgba(0,0,0,.05)}
-</style></head><body class='d-flex align-items-center justify-content-center min-vh-100 p-3'>
-<div class='card p-4 w-100' style='max-width:420px'>
-  <h3 class='text-center mb-3'><i class='fas fa-user-lock me-1'></i>Connexion</h3>
-  {% with m=get_flashed_messages(with_categories=true) %}{% for c,msg in m %}
-    <div class='alert alert-{{c}} small'>{{msg}}</div>{% endfor %}{% endwith %}
+  <meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+  <title>Connexion</title>
+  <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+  <link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css' rel='stylesheet'>
+  <style>
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
-  <form method='POST'>
-    <div class='mb-3'>
-      <label class='form-label small'><i class='fas fa-users-cog me-1'></i>Rôle</label>
-      <select name='role_select' class='form-select form-select-lg' required>
-        <option value='admin'>Admin</option>
-        <option value='medecin'>Médecin</option>
-        <option value='assistante'>Assistante</option>
-      </select>
-    </div>
-    <div class='mb-3'>
-      <label class='form-label small'><i class='fas fa-envelope me-1'></i>Email</label>
-      <input name='email' type='email' class='form-control form-control-lg' required>
-    </div>
-    <div class='mb-3'>
-      <label class='form-label small'><i class='fas fa-key me-1'></i>Mot de passe</label>
-      <input name='password' type='password' class='form-control form-control-lg' required>
-    </div>
-    <button class='btn btn-med btn-lg w-100'>Se connecter</button>
-  </form>
+    @keyframes gradientFlow {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
 
-  <!-- QR codes -->
-  <div class='d-flex gap-3 my-4 flex-column flex-md-row'>
-    <div class='text-center flex-fill'><canvas id='qrLocal' width='120' height='120'></canvas>
-      <div class='small mt-2'>EasyMedicaLink Web</div></div>
-    <div class='text-center flex-fill'><canvas id='qrLan' width='120' height='120'></canvas>
-      <div class='small mt-2'>réseau local</div></div>
+    body {
+      background: linear-gradient(135deg, #f0fafe 0%, #e3f2fd 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      border: none;
+      overflow: hidden;
+      animation: fadeInUp 0.6s ease-out;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+    }
+
+    .btn-gradient {
+      background: linear-gradient(45deg, #1a73e8, #0d9488);
+      background-size: 200% auto;
+      color: white;
+      border: none;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-gradient:hover {
+      background-position: right center;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(26, 115, 232, 0.3);
+    }
+
+    .btn-gradient::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -200%;
+      width: 200%;
+      height: 100%;
+      background: linear-gradient(
+        to right,
+        rgba(255,255,255,0) 0%,
+        rgba(255,255,255,0.3) 50%,
+        rgba(255,255,255,0) 100%
+      );
+      transform: skewX(-30deg);
+      transition: left 0.6s;
+    }
+
+    .btn-gradient:hover::after {
+      left: 200%;
+    }
+
+    .qr-container {
+      transition: transform 0.3s ease;
+    }
+
+    .qr-container:hover {
+      transform: scale(1.05);
+    }
+
+    .link-hover {
+      transition: color 0.3s ease;
+      position: relative;
+    }
+
+    .link-hover::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background: #1a73e8;
+      transition: width 0.3s ease;
+    }
+
+    .link-hover:hover::after {
+      width: 100%;
+    }
+
+    .download-badge {
+      position: relative;
+      padding: 8px 15px;
+      border-radius: 25px;
+      font-size: 0.9rem;
+      transition: all 0.3s ease;
+    }
+  </style>
+</head>
+<body class='p-3'>
+  <div class='card p-4' style='max-width:420px'>
+    <h3 class='text-center mb-4 fw-bold' style="color: #1a73e8;">
+      <i class='fas fa-user-lock me-2'></i>Connexion
+    </h3>
+
+    {% with m=get_flashed_messages(with_categories=true) %}
+      {% for c,msg in m %}
+      <div class='alert alert-{{c}} small animate__animated animate__fadeIn'>{{msg}}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method='POST' class='animate__animated animate__fadeIn animate__delay-1s'>
+      <div class='mb-3'>
+        <label class='form-label small text-muted'><i class='fas fa-users-cog me-1'></i>Rôle</label>
+        <select name='role_select' class='form-select form-select-lg shadow-sm'>
+          <option value='admin'>Admin</option>
+          <option value='medecin'>Médecin</option>
+          <option value='assistante'>Assistante</option>
+        </select>
+      </div>
+
+      <div class='mb-3'>
+        <label class='form-label small text-muted'><i class='fas fa-envelope me-1'></i>Email</label>
+        <input name='email' type='email' class='form-control form-control-lg shadow-sm'>
+      </div>
+
+      <div class='mb-4'>
+        <label class='form-label small text-muted'><i class='fas fa-key me-1'></i>Mot de passe</label>
+        <input name='password' type='password' class='form-control form-control-lg shadow-sm'>
+      </div>
+
+      <button class='btn btn-gradient btn-lg w-100 py-3 fw-bold'>
+        Se connecter
+      </button>
+    </form>
+
+    <div class='d-flex gap-3 my-4 flex-column flex-md-row'>
+      <div class='text-center flex-fill qr-container'>
+        <canvas id='qrLocal' width='120' height='120'></canvas>
+        <div class='small mt-2 text-muted'>Accès Web</div>
+      </div>
+      <div class='text-center flex-fill qr-container'>
+        <canvas id='qrLan' width='120' height='120'></canvas>
+        <div class='small mt-2 text-muted'>Réseau local</div>
+      </div>
+    </div>
+
+    <div class='d-flex flex-column gap-2 mt-3'>
+      <div class='d-flex flex-sm-row gap-2'>
+        <a href='{{ url_for("login.register") }}' 
+           class='btn btn-gradient flex-fill py-2'>
+          <i class='fas fa-user-plus me-1'></i>Créer un compte
+        </a>
+        <a href='{{ url_for("login.forgot_password") }}' 
+           class='btn btn-gradient flex-fill py-2'>
+          <i class='fas fa-unlock-alt me-1'></i>Récupération
+        </a>
+      </div>
+
+      {% if win64_filename or win32_filename %}
+      <div class='text-center mt-3'>
+        <div class='d-flex gap-2 justify-content-center'>
+          {% if win64_filename %}
+          <a href="{{ url_for('static', filename=win64_filename) }}" 
+             class='download-badge btn-gradient text-white text-decoration-none'>
+             <i class='fas fa-download me-1'></i>Windows 64-bit
+          </a>
+          {% endif %}
+          {% if win32_filename %}
+          <a href="{{ url_for('static', filename=win32_filename) }}" 
+             class='download-badge btn-gradient text-white text-decoration-none'>
+             <i class='fas fa-download me-1'></i>Windows 32-bit
+          </a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
   </div>
 
-  {% if local %}
-  <div class='d-flex flex-column flex-sm-row gap-2'>
-    <a href='{{ url_for("login.register") }}' class='btn btn-outline-secondary flex-fill'>
-      <i class='fas fa-user-plus me-1'></i>S’enregistrer</a>
-    <a href='{{ url_for("login.forgot_password") }}' class='btn btn-outline-secondary flex-fill'>
-      <i class='fas fa-unlock-alt me-1'></i>Mot de passe oublié</a>
-  </div>
-  {% endif %}
-</div>
-<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
-<script src='https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js'></script>
-<script>
-  new QRious({element:document.getElementById('qrLocal'),value:'https://easymedicalink-demo.onrender.com/',size:120,foreground:'#1a73e8'});
-  new QRious({element:document.getElementById('qrLan'),  value:'{{ url_lan }}',size:120,foreground:'#0d9488'});
-</script></body></html>"""
+  <script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js'></script>
+  <script>
+    // Animation au chargement
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.animate__animated').forEach(el => {
+        el.style.opacity = '0';
+        setTimeout(() => el.style.opacity = '1', 100);
+      });
+    });
+
+    // Génération des QR codes
+    new QRious({
+      element: document.getElementById('qrLocal'),
+      value: 'https://easymedicalink-demo.onrender.com/',
+      size: 120,
+      foreground: '#1a73e8'
+    });
+    
+    new QRious({
+      element: document.getElementById('qrLan'),
+      value: '{{ url_lan }}',
+      size: 120,
+      foreground: '#0d9488'
+    });
+  </script>
+</body>
+</html>
+"""
 
 register_template = '''
 <!DOCTYPE html>
@@ -200,8 +362,6 @@ register_template = '''
         <label class="form-label small"><i class="fas fa-users-cog me-2"></i>Rôle</label>
         <select name="role" class="form-select form-select-lg" required>
           <option value="admin">Admin</option>
-          <option value="medecin">Médecin</option>
-          <option value="assistante">Assistante</option>
         </select>
       </div>
       <div class="mb-3">
@@ -335,10 +495,17 @@ forgot_template = '''
 </body>
 </html>
 '''
+
 # ───────── 4. Routes
 @login_bp.route("/login", methods=["GET", "POST"])
 def login():
     local = is_localhost(request)
+
+    # Nouveau code pour détection des exécutables
+    static_folder = current_app.static_folder
+    contents = os.listdir(static_folder) if os.path.exists(static_folder) else []
+    win64_filename = next((f for f in contents if f.startswith('EasyMedicaLink-Win64.exe')), None)
+    win32_filename = next((f for f in contents if f.startswith('EasyMedicaLink-Win32.exe')), None)
 
     if request.method == "POST":
         role  = request.form["role_select"]
@@ -348,16 +515,12 @@ def login():
         users = load_users()
         u = users.get(email)
         if u and u["password"] == hash_password(pwd) and u.get("role", "admin") == role:
-            # Stockage de la session
-            session["email"]     = email
-            session["role"]      = role
-            session.permanent    = True
+            session["email"]  = email
+            session["role"]   = role
+            session.permanent = True
 
-            # Redirection directe vers la page d'accueil pour médecin et assistante
             if role in ("medecin", "assistante"):
                 return redirect(url_for("accueil.accueil"))
-
-            # Pour les autres rôles, on passe par la page d'activation
             return redirect(url_for("activation"))
 
         flash("Identifiants ou rôle invalides.", "danger")
@@ -365,24 +528,32 @@ def login():
     return render_template_string(
         login_template,
         url_lan = f"http://{lan_ip()}:3000",
-        local   = local
+        win64_filename=win64_filename,  # Nouveau paramètre
+        win32_filename=win32_filename   # Nouveau paramètre
     )
-      
+
 @login_bp.route("/register", methods=["GET","POST"])
 def register():
-    if not is_localhost(request):
-        flash("La création de compte n’est possible qu’en localhost.","warning")
-        return redirect(url_for("login.login"))
-    f=request.form
-    if request.method=="POST":
-        users=load_users(); email=f["email"].lower()
-        if email in users: flash("Email déjà enregistré.","danger")
-        elif f["password"]!=f["confirm"]: flash("Les mots de passe ne correspondent pas.","danger")
+    f = request.form
+    if request.method == "POST":
+        users = load_users()
+        email = f["email"].lower()
+        if email in users:
+            flash("Email déjà enregistré.","danger")
+        elif f["password"] != f["confirm"]:
+            flash("Les mots de passe ne correspondent pas.","danger")
         else:
-            users[email]={"password":hash_password(f["password"]),"role":f["role"],
-                          "clinic":f["clinic"],"creation_date":f["creation_date"],"address":f["address"]}
-            save_users(users); flash("Compte créé.","success"); return redirect(url_for("login.login"))
-    return render_template_string(register_template, local=True)
+            users[email] = {
+                "password":      hash_password(f["password"]),
+                "role":          f["role"],
+                "clinic":        f["clinic"],
+                "creation_date": f["creation_date"],
+                "address":       f["address"]
+            }
+            save_users(users)
+            flash("Compte créé.","success")
+            return redirect(url_for("login.login"))
+    return render_template_string(register_template)
 
 @login_bp.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():

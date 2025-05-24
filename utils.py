@@ -44,6 +44,8 @@ LOCAL_IP = socket.gethostbyname(socket.gethostname())
 
 BASE_DIR          = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MEDICALINK_FILES")
 EXCEL_FOLDER      = os.path.join(BASE_DIR, "Excel")
+EXCEL_FILE_PATH = os.path.join(EXCEL_FOLDER, "ConsultationData.xlsx")
+CONSULT_FILE_PATH = EXCEL_FILE_PATH  # Si besoin d'un alias
 PDF_FOLDER        = os.path.join(BASE_DIR, "PDF")
 CONFIG_FOLDER     = os.path.join(BASE_DIR, "Config")
 BACKGROUND_FOLDER = os.path.join(BASE_DIR, "Background")
@@ -53,7 +55,8 @@ for _dir in (BASE_DIR, EXCEL_FOLDER, PDF_FOLDER, CONFIG_FOLDER, BACKGROUND_FOLDE
 
 CONFIG_FILE         = os.path.join(CONFIG_FOLDER, "config.json")
 STORAGE_CONFIG_FILE = os.path.join(CONFIG_FOLDER, "storage_config.json")
-EXCEL_FILE_PATH     = os.path.join(EXCEL_FOLDER, "ConsultationData.xlsx")
+PATIENT_BASE_FILE = os.path.join(EXCEL_FOLDER, "info_Base_patient.xlsx")  # Nouveau
+CONSULT_FILE_PATH = os.path.join(EXCEL_FOLDER, "ConsultationData.xlsx")   # Existant
 
 background_file: Optional[str] = None
 
@@ -223,7 +226,12 @@ def load_patient_data():
     global patient_name_to_dob, patient_id_to_dob
     global patient_name_to_gender, patient_id_to_gender
 
-    if not os.path.exists(EXCEL_FILE_PATH):
+    # Fichiers sources distincts
+    PATIENT_BASE_FILE = os.path.join(EXCEL_FOLDER, 'info_Base_patient.xlsx')  # Données de base
+    CONSULT_FILE_PATH = os.path.join(EXCEL_FOLDER, 'ConsultationData.xlsx')   # Données de suivi
+
+    # Réinitialisation des variables globales
+    def reset_globals():
         patient_ids.clear(); patient_names.clear()
         patient_id_to_name.clear(); patient_name_to_id.clear()
         patient_name_to_age.clear(); patient_id_to_age.clear()
@@ -231,37 +239,69 @@ def load_patient_data():
         patient_name_to_antecedents.clear(); patient_id_to_antecedents.clear()
         patient_name_to_dob.clear(); patient_id_to_dob.clear()
         patient_name_to_gender.clear(); patient_id_to_gender.clear()
+
+    # 1. Chargement des données de base patients
+    if not os.path.exists(PATIENT_BASE_FILE):
+        reset_globals()
         return
 
-    df = pd.read_excel(EXCEL_FILE_PATH, sheet_name=0)
-    required = {'patient_id','patient_name','age','patient_phone',
-                'antecedents','date_of_birth','gender'}
-    if not required.issubset(df.columns):
-        return
+    try:
+        # Lecture du fichier de base patients
+        df_base = pd.read_excel(PATIENT_BASE_FILE, sheet_name=0, dtype=str).fillna('')
+        
+        # Vérification des colonnes requises
+        required_columns = {
+            'patient_id', 'patient_name', 'date_of_birth',
+            'gender', 'age', 'patient_phone', 'antecedents'
+        }
+        
+        if not required_columns.issubset(df_base.columns):
+            reset_globals()
+            return
 
-    df['patient_id']    = df['patient_id'].astype(str)
-    df['patient_name']  = df['patient_name'].astype(str)
-    df['date_of_birth'] = df['date_of_birth'].astype(str)
-    df['gender']        = df['gender'].astype(str)
+        # Nettoyage des données
+        df_base['patient_id'] = df_base['patient_id'].astype(str).str.strip()
+        df_base['patient_name'] = df_base['patient_name'].astype(str).str.strip()
+        
+        # Dernière entrée pour l'onglet "Données de base"
+        last_patient_entry = df_base.iloc[-1] if not df_base.empty else None
 
-    patient_ids       = sorted(df['patient_id'].unique().tolist(), key=str.lower)
-    patient_names     = sorted(df['patient_name'].unique().tolist(), key=str.lower)
-    patient_id_to_name       = dict(zip(df['patient_id'], df['patient_name']))
-    patient_name_to_id       = dict(zip(df['patient_name'], df['patient_id']))
-    patient_name_to_age      = dict(zip(df['patient_name'], df['age']))
-    patient_id_to_age        = dict(zip(df['patient_id'], df['age']))
-    patient_name_to_phone    = dict(zip(df['patient_name'], df['patient_phone']))
-    patient_id_to_phone      = dict(zip(df['patient_id'], df['patient_phone']))
-    patient_name_to_antecedents = dict(zip(df['patient_name'], df['antecedents']))
-    patient_id_to_antecedents   = dict(zip(df['patient_id'], df['antecedents']))
-    patient_name_to_dob      = dict(zip(df['patient_name'], df['date_of_birth']))
-    patient_id_to_dob        = dict(zip(df['patient_id'], df['date_of_birth']))
-    patient_name_to_gender   = dict(zip(df['patient_name'], df['gender']))
-    patient_id_to_gender     = dict(zip(df['patient_id'], df['gender']))
+        # 2. Chargement des données de suivi (consultations)
+        consult_data = {}
+        if os.path.exists(CONSULT_FILE_PATH):
+            df_consult = pd.read_excel(CONSULT_FILE_PATH, sheet_name=0, dtype=str)
+            df_consult['consultation_date'] = df_consult['consultation_date'].str[:10]  # Garder seulement la date
+            consult_data = df_consult.groupby(['patient_id', 'consultation_date']).last().reset_index()
 
-# Charger immédiatement les données
+        # Mise à jour des variables globales
+        patient_ids = sorted(df_base['patient_id'].unique().tolist(), key=str.lower)
+        patient_names = sorted(df_base['patient_name'].unique().tolist(), key=str.lower)
+        
+        # Mapping des données de base
+        for _, row in df_base.iterrows():
+            pid = str(row['patient_id'])
+            patient_id_to_name[pid] = row['patient_name']
+            patient_id_to_age[pid] = row['age']
+            patient_id_to_phone[pid] = row['patient_phone']
+            patient_id_to_antecedents[pid] = row['antecedents']
+            patient_id_to_dob[pid] = row['date_of_birth']
+            patient_id_to_gender[pid] = row['gender']
+
+            # Fusion avec dernières consultations si existantes
+            if pid in consult_data:
+                consult = consult_data[consult_data['patient_id'] == pid].iloc[0] # Get the specific row for the patient
+                patient_id_to_age[pid] = consult.get('age', row['age'])
+                patient_id_to_antecedents[pid] = consult.get('antecedents', row['antecedents'])
+
+        # Création des mappings inverses nom -> ID
+        patient_name_to_id = {v: k for k, v in patient_id_to_name.items()}
+
+    except Exception as e:
+        print(f"Erreur de chargement des données: {str(e)}")
+        reset_globals()
+
+# Chargement initial
 load_patient_data()
-
 # ---------------------------------------------------------------------------
 # 6. PDF : arrière plan, génération & fusion
 # ---------------------------------------------------------------------------
@@ -539,46 +579,49 @@ def generate_history_pdf_file(pdf_path: str, df_filtered: pd.DataFrame):
     if not df_filtered.empty:
         row0 = df_filtered.iloc[0]
         title = (
-            f"Historique des Consultations de {row0['patient_name']} "
-            f"(ID: {row0['patient_id']}, Age: {row0['age']}, Sexe: {row0['gender']}, "
-            f"Téléphone: {row0['patient_phone']}, Antécédents: {row0['antecedents']})"
+            f"Historique des Consultations de {str(row0.get('patient_name', '')).strip()} "
+            f"(ID: {str(row0.get('patient_id', '')).strip()}, Age: {str(row0.get('age', '')).strip()}, Sexe: {str(row0.get('gender', '')).strip()}, "
+            f"Téléphone: {str(row0.get('patient_phone', '')).strip()}, Antécédents: {str(row0.get('antecedents', '')).strip()})"
         )
         elements.append(Paragraph(title, style_heading))
         elements.append(Spacer(1, 12))
         for _, row in df_filtered.iterrows():
-            elements.append(Paragraph(f"Date : {row['consultation_date']}", style_sub))
+            elements.append(Paragraph(f"Date : {str(row.get('consultation_date', '')).strip()}", style_sub))
             elements.append(Spacer(1, 6))
             if pd.notnull(row.get("clinical_signs")):
                 elements.append(Paragraph("<b>Signes Cliniques / Motifs :</b>", style_normal))
-                elements.append(Paragraph(row["clinical_signs"], style_normal))
+                elements.append(Paragraph(str(row["clinical_signs"]).strip(), style_normal)) # Ensure string conversion
             vitals = []
-            if row.get("bp"): vitals.append(f"TA: {row.bp} mmHg")
-            if row.get("temperature"): vitals.append(f"T°: {row.temperature} °C")
-            if row.get("heart_rate"): vitals.append(f"FC: {row.heart_rate} bpm")
-            if row.get("respiratory_rate"): vitals.append(f"FR: {row.respiratory_rate} rpm")
+            if pd.notnull(row.get("bp")): vitals.append(f"TA: {str(row.bp).strip()} mmHg")
+            if pd.notnull(row.get("temperature")): vitals.append(f"T°: {str(row.temperature).strip()} °C")
+            if pd.notnull(row.get("heart_rate")): vitals.append(f"FC: {str(row.heart_rate).strip()} bpm")
+            if pd.notnull(row.get("respiratory_rate")): vitals.append(f"FR: {str(row.respiratory_rate).strip()} rpm")
             if vitals:
                 elements.append(Paragraph("<b>Paramètres Vitaux :</b> " + "; ".join(vitals), style_normal))
             if pd.notnull(row.get("diagnosis")):
-                elements.append(Paragraph(f"<b>Diagnostic :</b> {row['diagnosis']}", style_normal))
+                elements.append(Paragraph(f"<b>Diagnostic :</b> {str(row['diagnosis']).strip()}", style_normal))
             if pd.notnull(row.get("medications")):
                 elements.append(Paragraph("<b>Médicaments prescrits :</b>", style_normal))
                 for m in str(row.medications).split("; "):
-                    elements.append(Paragraph(f"- {m}", style_normal))
+                    if m.strip(): # S'assurer que l'élément n'est pas vide
+                        elements.append(Paragraph(f"- {m.strip()}", style_normal))
             if pd.notnull(row.get("analyses")):
                 elements.append(Paragraph("<b>Analyses demandées :</b>", style_normal))
                 for a in str(row.analyses).split("; "):
-                    elements.append(Paragraph(f"- {a}", style_normal))
+                    if a.strip(): # S'assurer que l'élément n'est pas vide
+                        elements.append(Paragraph(f"- {a.strip()}", style_normal))
             if pd.notnull(row.get("radiologies")):
                 elements.append(Paragraph("<b>Radiologies demandées :</b>", style_normal))
                 for r in str(row.radiologies).split("; "):
-                    elements.append(Paragraph(f"- {r}", style_normal))
+                    if r.strip(): # S'assurer que l'élément n'est pas vide
+                        elements.append(Paragraph(f"- {r.strip()}", style_normal))
             if pd.notnull(row.get("certificate_category")):
-                elements.append(Paragraph(f"<b>Certificat :</b> {row['certificate_category']}", style_normal))
+                elements.append(Paragraph(f"<b>Certificat :</b> {str(row['certificate_category']).strip()}", style_normal))
             if pd.notnull(row.get("rest_duration")):
-                elements.append(Paragraph(f"<b>Durée du repos :</b> {row['rest_duration']} jours", style_normal))
-            if pd.notnull(row.get("doctor_comment")) and row['doctor_comment'].strip():
+                elements.append(Paragraph(f"<b>Durée du repos :</b> {str(row['rest_duration']).strip()} jours", style_normal))
+            if pd.notnull(row.get("doctor_comment")) and str(row['doctor_comment']).strip():
                 elements.append(Paragraph("<b>Commentaire :</b>", style_normal))
-                elements.append(Paragraph(row['doctor_comment'], style_normal))
+                elements.append(Paragraph(str(row['doctor_comment']).strip(), style_normal))
             elements.append(Spacer(1, 12))
 
     doc.build(elements, onFirstPage=add_background_platypus, onLaterPages=add_background_platypus)
@@ -587,4 +630,3 @@ def generate_history_pdf_file(pdf_path: str, df_filtered: pd.DataFrame):
             merge_with_background_pdf(pdf_path)
         except Exception:
             pass
-
