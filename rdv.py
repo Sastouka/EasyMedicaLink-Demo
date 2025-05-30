@@ -357,6 +357,14 @@ def pdf_today():
         # Enfin, supprimer la colonne temporaire de tri
         df_today["Num Ordre_numeric"] = pd.to_numeric(df_today["Num Ordre"], errors="coerce")
         df_today = df_today.sort_values(by=["Num Ordre_numeric", "Heure"]).drop(columns=["Num Ordre_numeric"])
+        # Filtrer les rendez-vous d'aujourd'hui et créer une copie pour éviter les avertissements
+        df_today = df[df["Date_parsed"] == today].copy()
+
+        # Convertir "Num Ordre" en numérique pour le tri, gérer les erreurs (NaN pour non-numérique)
+        # Puis trier par "Num Ordre_numeric" et "Heure" (pour les créneaux ayant le même ordre)
+        # Enfin, supprimer la colonne temporaire de tri
+        df_today["Num Ordre_numeric"] = pd.to_numeric(df_today["Num Ordre"], errors="coerce")
+        df_today = df_today.sort_values(by=["Num Ordre_numeric", "Heure"]).drop(columns=["Num Ordre_numeric"])
 
         if df_today.empty:
             flash("Aucun RDV pour aujourd'hui.", "warning")

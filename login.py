@@ -125,6 +125,7 @@ login_template = """
       align-items: center;
       justify-content: center;
       flex-direction: column; /* Added to stack card and signature */
+      flex-direction: column; /* Added to stack card and signature */
     }
 
     .card {
@@ -232,16 +233,50 @@ login_template = """
         border-radius: 20%; /* Peut être '50%' pour un cercle */
         box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
+    /* New styles for contact info */
+    .contact-info {
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
+        text-align: center;
+    }
+    .contact-info a {
+        margin: 0 10px;
+    }
+    .signature {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: #777;
+    }
+    .app-icon { /* Nouveau style pour l'icône */
+        width: 100px; /* Ajustez la taille selon vos préférences */
+        height: 100px; /* Gardez la même valeur que la largeur pour un cercle/carré */
+        margin-bottom: 20px;
+        border-radius: 20%; /* Peut être '50%' pour un cercle */
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
   </style>
 </head>
 <body class='p-3'>
   <div class='card p-4' style='max-width:420px'>
     <img src="{{ url_for('pwa_bp.pwa_icon', filename='icon-512.png') }}" alt="EasyMedicalink Icon" class="app-icon mx-auto d-block">
 
+    <img src="{{ url_for('pwa_bp.pwa_icon', filename='icon-512.png') }}" alt="EasyMedicalink Icon" class="app-icon mx-auto d-block">
+
     <h3 class='text-center mb-4 fw-bold' style="color: #1a73e8;">
       <i class='fas fa-user-lock me-2'></i>Connexion
     </h3>
 
+    {% if win64_filename or win32_filename %}
+    <div class="alert alert-info small text-center mb-3" role="alert">
+      <i class="fas fa-desktop me-2"></i>
+      Pour une expérience optimale et un travail collaboratif en mode local avec vos équipes,
+      en toute tranquillité, pensez à télécharger notre application pour Windows.
+      <br>
+      <small>Les liens de téléchargement (32 et 64 bits) se trouvent plus bas sur cette page.</small>
+    </div>
+    {% endif %}
     {% if win64_filename or win32_filename %}
     <div class="alert alert-info small text-center mb-3" role="alert">
       <i class="fas fa-desktop me-2"></i>
@@ -296,9 +331,11 @@ login_template = """
     <div class='d-flex flex-column gap-2 mt-3'>
       <div class='d-flex flex-sm-row gap-2'>
         <a href='{{ url_for("login.register") }}'
+        <a href='{{ url_for("login.register") }}'
            class='btn btn-gradient flex-fill py-2'>
           <i class='fas fa-user-plus me-1'></i>Créer un compte
         </a>
+        <a href='{{ url_for("login.forgot_password") }}'
         <a href='{{ url_for("login.forgot_password") }}'
            class='btn btn-gradient flex-fill py-2'>
           <i class='fas fa-unlock-alt me-1'></i>Récupération
@@ -310,11 +347,13 @@ login_template = """
         <div class='d-flex gap-2 justify-content-center'>
           {% if win64_filename %}
           <a href="{{ url_for('static', filename=win64_filename) }}"
+          <a href="{{ url_for('static', filename=win64_filename) }}"
              class='download-badge btn-gradient text-white text-decoration-none'>
              <i class='fas fa-download me-1'></i>Windows 64-bit
           </a>
           {% endif %}
           {% if win32_filename %}
+          <a href="{{ url_for('static', filename=win32_filename) }}"
           <a href="{{ url_for('static', filename=win32_filename) }}"
              class='download-badge btn-gradient text-white text-decoration-none'>
              <i class='fas fa-download me-1'></i>Windows 32-bit
@@ -324,6 +363,16 @@ login_template = """
       </div>
       {% endif %}
     </div>
+
+    <div class='contact-info'>
+        <p>N'hésitez pas à nous contacter par e-mail à sastoukadigital@gmail.com ou par téléphone au +212-652-084735. :</p>
+        <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
+        <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
+    </div>
+
+  </div>
+  <div class="signature">
+    Développé par SastoukaDigital
 
     <div class='contact-info'>
         <p>N'hésitez pas à nous contacter par e-mail à sastoukadigital@gmail.com ou par téléphone au +212-652-084735. :</p>
@@ -355,6 +404,7 @@ login_template = """
       foreground: '#1a73e8'
     });
 
+
     new QRious({
       element: document.getElementById('qrLan'),
       value: '{{ url_lan }}',
@@ -379,6 +429,30 @@ register_template = '''
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <style>
     .btn-medical { background: linear-gradient(45deg,#1a73e8,#0d9488); color:white; }
+    body {
+        background:#f0fafe;
+        display: flex; /* Added for centering */
+        flex-direction: column; /* Added for stacking */
+        align-items: center; /* Added for centering */
+        justify-content: center; /* Added for centering */
+        min-height: 100vh; /* Added for full viewport height */
+    }
+    /* New styles for contact info */
+    .contact-info {
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
+        text-align: center;
+    }
+    .contact-info a {
+        margin: 0 10px;
+    }
+    .signature {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: #777;
+    }
     body {
         background:#f0fafe;
         display: flex; /* Added for centering */
@@ -461,6 +535,14 @@ register_template = '''
   </div>
   <div class="signature">
     Développé par SastoukaDigital
+    <div class='contact-info'>
+        <p>Besoin d'aide ? Contactez-nous :</p>
+        <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
+        <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
+    </div>
+  </div>
+  <div class="signature">
+    Développé par SastoukaDigital
   </div>
   <script>
     document.getElementById('registerForm').addEventListener('submit', function(e) {
@@ -518,6 +600,30 @@ reset_template = '''
         font-size: 0.8rem;
         color: #777;
     }
+    body {
+        background:#f0fafe;
+        display: flex; /* Added for centering */
+        flex-direction: column; /* Added for stacking */
+        align-items: center; /* Added for centering */
+        justify-content: center; /* Added for centering */
+        min-height: 100vh; /* Added for full viewport height */
+    }
+    /* New styles for contact info */
+    .contact-info {
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
+        text-align: center;
+    }
+    .contact-info a {
+        margin: 0 10px;
+    }
+    .signature {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: #777;
+    }
   </style>
 </head>
 <body class="d-flex align-items-center justify-content-center min-vh-100 p-3">
@@ -547,6 +653,14 @@ reset_template = '''
   </div>
   <div class="signature">
     Développé par SastoukaDigital
+    <div class='contact-info'>
+        <p>Besoin d'aide ? Contactez-nous :</p>
+        <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
+        <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
+    </div>
+  </div>
+  <div class="signature">
+    Développé par SastoukaDigital
   </div>
 </body>
 </html>
@@ -564,6 +678,30 @@ forgot_template = '''
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
     .btn-medical { background: linear-gradient(45deg,#1a73e8,#0d9488); color:white; }
+    body {
+        background:#f0fafe;
+        display: flex; /* Added for centering */
+        flex-direction: column; /* Added for stacking */
+        align-items: center; /* Added for centering */
+        justify-content: center; /* Added for centering */
+        min-height: 100vh; /* Added for full viewport height */
+    }
+    /* New styles for contact info */
+    .contact-info {
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
+        text-align: center;
+    }
+    .contact-info a {
+        margin: 0 10px;
+    }
+    .signature {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: #777;
+    }
     body {
         background:#f0fafe;
         display: flex; /* Added for centering */
@@ -619,7 +757,14 @@ forgot_template = '''
         <p>Besoin d'aide ? Contactez-nous :</p>
         <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
         <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
+    <div class='contact-info'>
+        <p>Besoin d'aide ? Contactez-nous :</p>
+        <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
+        <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
     </div>
+  </div>
+  <div class="signature">
+    Développé par SastoukaDigital
   </div>
   <div class="signature">
     Développé par SastoukaDigital
@@ -661,6 +806,8 @@ def login():
     return render_template_string(
         login_template,
         url_lan = f"http://{lan_ip()}:3000",
+        win64_filename=win64_filename,
+        win32_filename=win32_filename
         win64_filename=win64_filename,
         win32_filename=win32_filename
     )
@@ -720,6 +867,7 @@ def forgot_password():
         local=local
     )
 
+
 @login_bp.route('/change_password', methods=['GET', 'POST'])
 def change_password():
     email = session.get('email')
@@ -742,6 +890,7 @@ def change_password():
             return redirect(url_for('login.login'))
 
     return render_template_string(reset_template)
+
 
 @login_bp.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
