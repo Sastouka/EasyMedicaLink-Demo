@@ -432,14 +432,44 @@ def _find_column(df: pd.DataFrame, keys: list[str]) -> Optional[str]:
     return None
 
 def _total_revenue(df_facture: pd.DataFrame) -> float:
-    """Somme totale TTC même si la colonne ne porte pas exactement « Total »."""
-    col = _find_column(df_facture, ["total", "montant", "amount"])
-    if not col:
-        return 0.0
-    vals = (df_facture[col].astype(str)
-            .str.replace(r"[^\d,.\-]", "", regex=True)
-            .str.replace(",", ".", regex=False))
-    return round(pd.to_numeric(vals, errors="coerce").sum(), 2)
+    """Calcule la somme totale TTC en utilisant 'Sous-total' et 'TVA', ou 'Total' si 'TVA' n'est pas présente."""
+
+    # Tente d'abord de trouver la colonne 'Total' qui devrait contenir le TTC
+    total_col = _find_column(df_facture, ["Total", "montant", "amount"])
+
+    # Tente de trouver les colonnes 'Sous-total' et 'TVA'
+    sous_total_col = _find_column(df_facture, ["Sous-total", "HT", "subtotal"])
+    tva_col = _find_column(df_facture, ["TVA", "tax", "vat"])
+
+    # Option 1: Si les colonnes 'Sous-total' et 'TVA' sont trouvées, on calcule le TTC
+    if sous_total_col and tva_col:
+        df = df_facture.copy() # Travailler sur une copie pour éviter de modifier le DataFrame original
+        
+        # Nettoyage et conversion de la colonne 'Sous-total'
+        vals_sous_total = (df[sous_total_col].astype(str)
+                           .str.replace(r"[^\d,.\-]", "", regex=True)
+                           .str.replace(",", ".", regex=False))
+        numeric_sous_total = pd.to_numeric(vals_sous_total, errors="coerce").fillna(0)
+
+        # Nettoyage et conversion de la colonne 'TVA'
+        vals_tva = (df[tva_col].astype(str)
+                    .str.replace(r"[^\d,.\-]", "", regex=True)
+                    .str.replace(",", ".", regex=False))
+        numeric_tva = pd.to_numeric(vals_tva, errors="coerce").fillna(0)
+
+        # Calcul du TTC
+        ttc_calculated = numeric_sous_total + numeric_tva
+        return round(ttc_calculated.sum(), 2)
+
+    # Option 2: Si 'Sous-total' ou 'TVA' ne sont pas disponibles, on revient à la colonne 'Total'
+    elif total_col:
+        vals = (df_facture[total_col].astype(str)
+                .str.replace(r"[^\d,.\-]", "", regex=True)
+                .str.replace(",", ".", regex=False))
+        return round(pd.to_numeric(vals, errors="coerce").sum(), 2)
+
+    # Si aucune des colonnes nécessaires n'est trouvée
+    return 0.0
 
 def _finance_timeseries(df_facture: pd.DataFrame) -> dict:
     """Renvoie dict avec ca_labels/list et ca_values/list par mois."""
