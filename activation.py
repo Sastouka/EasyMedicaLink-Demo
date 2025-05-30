@@ -1,5 +1,4 @@
 # activation.py – gestion licences & activation
-# activation.py – gestion licences & activation
 from __future__ import annotations
 import os, json, uuid, hashlib, socket, requests, calendar
 from datetime import date, timedelta
@@ -200,14 +199,6 @@ body{background:#f8f9fa; display: flex; align-items: center; justify-content: ce
 .contact-info a {margin: 0 10px;}
 </style>
 </head><body><div class='container'>
-<style>
-body{background:#f8f9fa; display: flex; align-items: center; justify-content: center; min-height: 100vh;}
-.card{border-radius:1rem;box-shadow:0 4px 20px rgba(0,0,0,.1); width: 100%; max-width: 500px;}
-.btn-primary{background:linear-gradient(45deg,#0069d9,#6610f2);border:none}
-.contact-info {margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; text-align: center;}
-.contact-info a {margin: 0 10px;}
-</style>
-</head><body><div class='container'>
 <div class='row justify-content-center'><div class='col-md-6'>
 <div class='card p-4'><h3 class='card-title text-center mb-3'><i class='fas fa-key'></i> Activation</h3>
 <p class='small text-center'>Mois/année : <b>{{ month_year }}</b> • Semaine #<b>{{ week_rank }}</b></p>
@@ -227,13 +218,6 @@ body{background:#f8f9fa; display: flex; align-items: center; justify-content: ce
 <i class='fas fa-infinity'></i> Illimité (120 $)</button></div>
 {% with m = get_flashed_messages(with_categories=true) %}
   {% for c,msg in m %}<div class='alert alert-{{c}}'>{{msg}}</div>{% endfor %}{% endwith %}
-</form>
-<div class='contact-info'>
-    <p>Pour toute question concernant l'activation, le paiement ou le support technique, contactez-nous. Vous pouvez nous joindre par email à sastoukadigital@gmail.com pour des requêtes détaillées, ou via WhatsApp au +212652084735 pour une assistance rapide et directe.</p>
-    <a href='mailto:sastoukadigital@gmail.com' class='btn btn-outline-info'><i class='fas fa-envelope'></i> Email</a>
-    <a href='https://wa.me/212652084735' class='btn btn-outline-success' target='_blank'><i class='fab fa-whatsapp'></i> WhatsApp</a>
-</div>
-</div></div></div></div>
 </form>
 <div class='contact-info'>
     <p>Pour toute question concernant l'activation, le paiement ou le support technique, contactez-nous. Vous pouvez nous joindre par email à sastoukadigital@gmail.com pour des requêtes détaillées, ou via WhatsApp au +212652084735 pour une assistance rapide et directe.</p>
