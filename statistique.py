@@ -22,9 +22,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from flask import (
-    Blueprint, render_template_string, session,
-    redirect, url_for, flash, request,
-    send_file, abort
+    Blueprint, request, render_template_string,
+    redirect, url_for, flash, send_file, session, jsonify
 )
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
@@ -187,7 +186,7 @@ def stats_home():
 
     # 8. KPI
     metrics = {
-        "total_factures":  len(df_facture),  # SEULE MODIFICATION ICI
+        "total_factures":  len(df_facture),
         "total_patients": df_patient["ID"].nunique() if "ID" in df_patient.columns else 0,
         "total_revenue":  _total_revenue(df_facture),
     }
@@ -207,6 +206,10 @@ def stats_home():
         )
         charts["activite_labels"] = activ["consultation_date"].dt.strftime("%Y-%m").tolist()
         charts["activite_values"] = activ["count"].tolist()
+    else:
+        charts["activite_labels"] = []
+        charts["activite_values"] = []
+
 
     # 9b. Chiffre d’affaires mensuel
     charts.update(_finance_timeseries(df_facture))
@@ -216,6 +219,10 @@ def stats_home():
         genre = df_patient.groupby("Sexe")["ID"].count()
         charts["genre_labels"] = genre.index.tolist()
         charts["genre_values"] = genre.values.tolist()
+    else:
+        charts["genre_labels"] = []
+        charts["genre_values"] = []
+
 
     # 9d. Tranches d’âge
     charts.update(_age_distribution(df_patient))
@@ -232,26 +239,8 @@ def stats_home():
         start_date=start_str,
         end_date=end_str,
         today=datetime.now().strftime("%Y-%m-%d"),
-         data_available=data_available,  # <-- Nouveau paramètre
-)
-
-    # 9d. Tranches d’âge
-    charts.update(_age_distribution(df_patient))
-
-    # 10. Rendu
-    return render_template_string(
-        _TEMPLATE,
-        config=utils.load_config(),
-        theme_vars=theme.current_theme(),
-        metrics=metrics,
-        charts=charts,
-        theme_names=list(theme.THEMES.keys()),
-        currency=utils.load_config().get("currency", "EUR"),
-        start_date=start_str,
-        end_date=end_str,
-        today=datetime.now().strftime("%Y-%m-%d"),
-         data_available=data_available,  # <-- Nouveau paramètre
-)
+        data_available=data_available,
+    )
 
 @statistique_bp.route("/export_pdf", methods=["GET"])
 def export_pdf():
@@ -550,55 +539,290 @@ _TEMPLATE = r"""
 <html lang="fr">
 {{ pwa_head()|safe }}
 <head>
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
-<style>
-  .card-header h1,
-  .card-header .header-item,
-  .card-header p {
-    font-size: 30px !important;
-  }
-  .card-header h1 i,
-  .card-header .header-item i,
-  .card-header p i {
-    font-size: 30px !important;
-  }
-  .header-item {
-    font-size: 28px !important;
-  }
-</style>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <title>Statistiques – {{ config.nom_clinique or 'EasyMedicaLink' }}</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <style>
   :root {
     {% for var, val in theme_vars.items() %}
     --{{ var }}: {{ val }};
     {% endfor %}
+    --font-primary: 'Poppins', sans-serif;
+    --font-secondary: 'Great Vibes', cursive;
+    --gradient-main: linear-gradient(45deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    --shadow-light: 0 5px 15px rgba(0, 0, 0, 0.1);
+    --shadow-medium: 0 8px 25px rgba(0, 0, 0, 0.2);
+    --border-radius-lg: 1rem;
+    --border-radius-md: 0.75rem;
+    --border-radius-sm: 0.5rem;
   }
   body {
+    font-family: var(--font-primary);
     background: var(--bg-color);
     color: var(--text-color);
     padding-top: 56px;
+    transition: background 0.3s ease, color 0.3s ease;
   }
-  .navbar, .offcanvas-header {
-    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color)) !important;
+  .navbar {
+    background: var(--gradient-main) !important;
+    box-shadow: var(--shadow-medium);
   }
-  .offcanvas-body, .card {
+  .navbar-brand {
+    font-family: var(--font-secondary);
+    font-size: 2.0rem !important;
+    color: white !important;
+    display: flex;
+    align-items: center;
+    transition: transform 0.3s ease;
+  }
+  .navbar-brand:hover {
+    transform: scale(1.05);
+  }
+  .navbar-toggler {
+    border: none;
+    outline: none;
+  }
+  .navbar-toggler i {
+    color: white;
+    font-size: 1.5rem;
+  }
+  .offcanvas-header {
+    background: var(--gradient-main) !important;
+    color: white;
+  }
+  .offcanvas-body {
     background: var(--card-bg) !important;
     color: var(--text-color) !important;
+  }
+  .offcanvas-title {
+    font-weight: 600;
+  }
+  .card {
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-light);
+    background: var(--card-bg) !important;
+    color: var(--text-color) !important;
+    border: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-medium);
   }
   .card-header {
     background: var(--primary-color) !important;
     color: var(--button-text) !important;
+    border-top-left-radius: var(--border-radius-lg);
+    border-top-right-radius: var(--border-radius-lg);
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
   }
-  .card {
-    border-radius: 15px;
-    box-shadow: 0 4px 20px var(--card-shadow) !important;
+  .card-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    transform: skewY(-5deg);
+    transform-origin: top left;
+    z-index: 0;
+  }
+  .card-header h1, .card-header .header-item, .card-header p {
+    position: relative;
+    z-index: 1;
+    font-size: 1.8rem !important;
+    font-weight: 700;
+  }
+  .card-header i {
+    font-size: 1.8rem !important;
+    margin-right: 0.5rem;
+  }
+  .header-item {
+    font-size: 1.2rem !important;
+    font-weight: 400;
+  }
+
+  /* KPI Cards */
+  .kpi-card {
+    background: var(--card-bg);
+    border: 2px solid var(--primary-color); /* Use primary color for border */
+    border-radius: var(--border-radius-md);
+    transition: transform .2s ease, box-shadow .2s ease;
+    box-shadow: var(--shadow-light);
+  }
+  .kpi-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-medium);
+  }
+  .kpi-value {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--primary-color); /* Use primary color for value */
+  }
+  .kpi-label {
+    font-size: 1rem;
+    color: var(--text-color);
+  }
+
+  /* Chart Cards */
+  .chart-card {
+    background: var(--card-bg);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-light);
+    border: none;
+  }
+  .chart-card .card-header {
+    background: var(--secondary-color) !important; /* Use secondary color for chart headers */
+    color: var(--button-text) !important;
+    border-top-left-radius: var(--border-radius-lg);
+    border-top-right-radius: var(--border-radius-lg);
+  }
+
+  /* Buttons */
+  .btn {
+    border-radius: var(--border-radius-md);
+    font-weight: 600;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1.25rem;
+  }
+  .btn i {
+    margin-right: 0.5rem;
+  }
+  .btn-primary {
+    background: var(--gradient-main);
+    border: none;
+    color: var(--button-text);
+    box-shadow: var(--shadow-light);
+  }
+  .btn-primary:hover {
+    box-shadow: var(--shadow-medium);
+    background: var(--gradient-main);
+    opacity: 0.9;
+  }
+  .btn-success {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+    color: white;
+  }
+  .btn-success:hover {
+    background-color: var(--success-color-dark);
+    border-color: var(--success-color-dark);
+    box-shadow: var(--shadow-medium);
+  }
+  .btn-warning {
+    background-color: var(--warning-color);
+    border-color: var(--warning-color);
+    color: white;
+  }
+  .btn-warning:hover {
+    background-color: var(--warning-color-dark);
+    border-color: var(--warning-color-dark);
+    box-shadow: var(--shadow-medium);
+  }
+  .btn-danger {
+    background-color: var(--danger-color);
+    border-color: var(--danger-color);
+    color: white;
+  }
+  .btn-danger:hover {
+    background-color: var(--danger-color-dark);
+    border-color: var(--danger-color-dark);
+    box-shadow: var(--shadow-medium);
+  }
+  .btn-info { /* WhatsApp button */
+    background-color: #25D366;
+    border-color: #25D366;
+    color: white;
+  }
+  .btn-info:hover {
+    background-color: #1DA851;
+    border-color: #1DA851;
+    box-shadow: var(--shadow-medium);
+  }
+  .btn-outline-secondary {
+    border-color: var(--secondary-color);
+    color: var(--text-color);
+    background-color: transparent;
+  }
+  .btn-outline-secondary:hover {
+    background-color: var(--secondary-color);
+    color: white;
+    box-shadow: var(--shadow-light);
+  }
+  .btn-secondary {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+    color: var(--button-text);
+  }
+  .btn-secondary:hover {
+    background-color: var(--secondary-color-dark);
+    border-color: var(--secondary-color-dark);
+    box-shadow: var(--shadow-medium);
+  }
+  .btn-sm {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.875rem;
+  }
+
+  /* Form controls */
+  .form-control, .form-select {
+    border-radius: var(--border-radius-sm);
+    border: 1px solid var(--secondary-color);
+    padding: 0.5rem 0.75rem;
+    background-color: var(--card-bg);
+    color: var(--text-color);
+  }
+  .form-control:focus, .form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.25rem rgba(var(--primary-color-rgb), 0.25);
+  }
+
+  /* Footer */
+  footer {
+    background: var(--gradient-main);
+    color: white;
+    font-weight: 300;
+    box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.1);
+    padding-top: 0.75rem; /* Reduced padding */
+    padding-bottom: 0.75rem; /* Reduced padding */
+    margin-top: 2rem; /* Added margin-top for space from buttons */
+  }
+  footer p {
+    margin-bottom: 0.25rem; /* Reduced margin for paragraphs */
+  }
+
+  /* Flash messages */
+  .alert {
+    border-radius: var(--border-radius-md);
+    font-weight: 600;
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1060;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: var(--shadow-medium);
+    animation: fadeInOut 5s forwards;
+  }
+
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
   }
 </style>
 </head>
@@ -610,9 +834,8 @@ _TEMPLATE = r"""
       <i class="fas fa-bars"></i>
     </button>
     <a class="navbar-brand ms-auto d-flex align-items-center"
-       href="{{ url_for('accueil.accueil') }}"
-       style="font-family:'Great Vibes',cursive;font-size:2rem;color:white;">
-      <i class="fas fa-home me-2" style="transform: translateX(-0.5cm);"></i>
+       href="{{ url_for('accueil.accueil') }}">
+      <i class="fas fa-home me-2"></i>
       <i class="fas fa-heartbeat me-2"></i>EasyMedicaLink
     </a>
   </div>
@@ -624,22 +847,7 @@ _TEMPLATE = r"""
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
   </div>
   <div class="offcanvas-body">
-    <form id="rdvSettingsForm" action="{{ url_for('settings') }}" method="POST">
-      <div class="mb-3">
-        <label for="rdvThemeSelect" class="form-label"><i class="fas fa-palette me-1"></i>Thème</label>
-        <select id="rdvThemeSelect" name="theme" class="form-select">
-          {% for t in theme_names %}
-          <option value="{{ t }}" {% if config.theme == t %}selected{% endif %}>{{ t.capitalize() }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="d-flex gap-2 mb-4">
-        <button type="button" id="saveRdvSettings" class="btn btn-success flex-fill">
-          <i class="fas fa-save me-2"></i>Enregistrer
-        </button>
-      </div>
-    </form>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 mb-4">
       <a href="{{ url_for('login.change_password') }}" class="btn btn-outline-secondary flex-fill">
         <i class="fas fa-key me-2"></i>Modifier passe
       </a>
@@ -647,28 +855,62 @@ _TEMPLATE = r"""
         <i class="fas fa-sign-out-alt me-2"></i>Déconnexion
       </a>
     </div>
+
+    <form id="settingsForm" action="{{ url_for('settings') }}" method="POST">
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="nom_clinique" id="nom_clinique" value="{{ config.nom_clinique or '' }}" placeholder=" ">
+        <label for="nom_clinique">Nom de la clinique</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="cabinet" id="cabinet" value="{{ config.cabinet or '' }}" placeholder=" ">
+        <label for="cabinet">Cabinet</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="centre_medecin" id="centre_medecin" value="{{ config.centre_medical or '' }}" placeholder=" ">
+        <label for="centre_medecin">Centre médical</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="nom_medecin" id="nom_medecin" value="{{ config.doctor_name or '' }}" placeholder=" ">
+        <label for="nom_medecin">Nom du médecin</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="lieu" id="lieu" value="{{ config.location or '' }}" placeholder=" ">
+        <label for="lieu">Lieu</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <select class="form-select" name="theme" id="theme_select" placeholder=" ">
+          {% for t in theme_names %}<option value="{{ t }}" {% if config.theme == t %}selected{% endif %}>{{ t.capitalize() }}</option>{% endfor %}
+        </select>
+        <label for="theme_select">Thème</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="arriere_plan" id="arriere_plan" value="{{ config.background_file_path or '' }}" placeholder=" ">
+        <label for="arriere_plan">Image d’arrière-plan</label>
+      </div>
+      <div class="mb-3 floating-label">
+        <input type="text" class="form-control" name="storage_path" id="storage_path" value="{{ config.storage_path or '' }}" placeholder=" ">
+        <label for="storage_path">Chemin de stockage</label>
+      </div>
+      <div class="d-flex gap-2 mt-4">
+        <button type="submit" class="btn btn-success flex-fill">
+          <i class="fas fa-save me-2"></i>Enregistrer
+        </button>
+      </div>
+    </form>
   </div>
 </div>
 
 <script>
-  document.getElementById('saveRdvSettings').addEventListener('click', function() {
-    fetch("{{ url_for('settings') }}", {
-      method: 'POST',
-      body: new FormData(document.getElementById('rdvSettingsForm')),
-      credentials: 'same-origin'
-    }).then(function(res) {
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        alert('Erreur lors de l’enregistrement');
-      }
-    }).catch(function() {
-      alert('Erreur réseau');
-    });
+  // Soumission AJAX paramètres
+  document.getElementById('settingsForm').addEventListener('submit', e=>{
+    e.preventDefault();
+    fetch(e.target.action,{method:e.target.method,body:new FormData(e.target),credentials:'same-origin'})
+      .then(r=>{ if(!r.ok) throw new Error('Échec réseau'); return r; })
+      .then(()=>Swal.fire({icon:'success',title:'Enregistré',text:'Paramètres sauvegardés.'}).then(()=>location.reload()))
+      .catch(err=>Swal.fire({icon:'error',title:'Erreur',text:err.message}));
   });
 </script>
 
-<!-- Carte identité -->
 <div class="container-fluid my-4">
   <div class="row justify-content-center">
     <div class="col-12">
@@ -698,112 +940,82 @@ _TEMPLATE = r"""
 <div class="container-fluid my-4">
   <div class="row justify-content-center">
     <div class="col-12">
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
-<style>
-  .card-header h1, .card-header .header-item, .card-header p{font-size:30px!important;}
-  .card-header h1 i, .card-header .header-item i, .card-header p i{font-size:30px!important;}
-  .header-item{font-size:28px!important;}
-</style>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
-<title>Statistiques – {{ config.nom_clinique or 'EasyMedicaLink' }}</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  :root{ {% for v,c in theme_vars.items() %}--{{v}}:{{c}};{% endfor %} --amazon-orange:#FF9900;}
-  body{background:var(--bg-color);color:var(--text-color);padding-top:56px;}
-  .navbar, .offcanvas-header{background:linear-gradient(45deg,var(--amazon-orange),var(--primary-color))!important;}
-  .offcanvas-body, .card{background:var(--card-bg)!important;color:var(--text-color)!important;}
-  .card-header{background:var(--primary-color)!important;color:var(--button-text)!important;}
-  .card{border-radius:15px;box-shadow:0 4px 20px var(--card-shadow)!important;}
-  .kpi-card{background:var(--card-bg);border:2px solid var(--amazon-orange);border-radius:12px;transition:transform .2s;}
-  .kpi-card:hover{transform:translateY(-4px);}
-  .kpi-value{font-size:2.2rem;font-weight:700;color:var(--amazon-orange);}
-  .kpi-label{font-size:1rem;color:var(--text-color);}
-  .chart-card{background:var(--card-bg);border-radius:15px;box-shadow:0 4px 20px var(--card-shadow)!important;}
-</style>
-</head>
-<body>
+      <form class="row g-2 mb-4 justify-content-center" method="get">
+        <div class="col-auto">
+          <a href="{{ url_for('statistique.export_pdf', start_date=start_date, end_date=end_date) if data_available else '#' }}"
+            class="btn btn-outline-secondary {{ 'disabled pe-none' if not data_available }}"
+            {% if not data_available %}aria-disabled="true" tabindex="-1"{% endif %}>
+            <i class="fas fa-file-pdf me-2"></i>Générer le Rapport PDF
+          </a>
+        </div>
+      </form>
 
-{% include 'navbar.html' ignore missing %}
+      <div class="row g-4">
+        <div class="col-12 col-lg-4">
+          <div class="p-3 kpi-card h-100 text-center">
+            <div class="kpi-value">{{ metrics.total_factures }}</div>
+            <div class="kpi-label">Nombre total des factures</div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="p-3 kpi-card h-100 text-center">
+            <div class="kpi-value">{{ metrics.total_patients }}</div>
+            <div class="kpi-label">Patients uniques</div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="p-3 kpi-card h-100 text-center">
+            <div class="kpi-value">{{ "%.2f"|format(metrics.total_revenue) }} {{ currency }}</div>
+            <div class="kpi-label">Chiffre d’affaires (TTC)</div>
+          </div>
+        </div>
+      </div>
 
-<div class="container-fluid my-4">
-
-  <!-- Filtre par période et export PDF -->
-  <form class="row g-2 mb-4 justify-content-center" method="get">
-    <div class="col-auto">
-    <div class="col-auto">
-      <a href="{{ url_for('statistique.export_pdf', start_date=start_date, end_date=end_date) if data_available else '#' }}"
-        class="btn btn-outline-secondary {{ 'disabled pe-none' if not data_available }}"
-        {% if not data_available %}aria-disabled="true" tabindex="-1"{% endif %}>
-        <i class="fas fa-file-pdf me-2"></i>Générer le Rapport PDF
-      </a>
-    </div>
-    </div>
-  </form>
-  <!-- KPI -->
-  <div class="row g-4">
-    <div class="col-12 col-lg-4">
-      <div class="p-3 kpi-card h-100 text-center">
-        <div class="kpi-value">{{ metrics.total_factures }}</div>
-        <div class="kpi-label">Nombre total des factures</div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-4">
-      <div class="p-3 kpi-card h-100 text-center">
-        <div class="kpi-value">{{ metrics.total_patients }}</div>
-        <div class="kpi-label">Patients uniques</div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-4">
-      <div class="p-3 kpi-card h-100 text-center">
-        {# Ancien format conservé pour référence — ligne commentée #}
-        {# <div class="kpi-value">{{ "{:,2f}".format(metrics.total_revenue) }}</div> #}
-        <div class="kpi-value">{{ "%.2f"|format(metrics.total_revenue) }} {{ currency }}</div>  <!-- ← NEW -->
-        <div class="kpi-label">Chiffre d’affaires (TTC)</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Graphiques -->
-  <div class="row g-4 mt-4">
-    <div class="col-12 col-xl-6">
-      <div class="card chart-card">
-        <div class="card-header"><i class="fas fa-chart-line me-2"></i>Consultations mensuelles</div>
-        <div class="card-body"><canvas id="consultChart"></canvas></div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-6">
-      <div class="card chart-card">
-        <div class="card-header"><i class="fas fa-coins me-2"></i>Chiffre d’affaires mensuel</div>
-        <div class="card-body"><canvas id="caChart"></canvas></div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-6">
-      <div class="card chart-card">
-        <div class="card-header"><i class="fas fa-venus-mars me-2"></i>Répartition par sexe</div>
-        <div class="card-body"><canvas id="genderChart"></canvas></div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-6">
-      <div class="card chart-card">
-        <div class="card-header"><i class="fas fa-chart-area me-2"></i>Tranches d’âge</div>
-        <div class="card-body"><canvas id="ageChart"></canvas></div>
+      <div class="row g-4 mt-4">
+        <div class="col-12 col-xl-6">
+          <div class="card chart-card">
+            <div class="card-header"><i class="fas fa-chart-line me-2"></i>Consultations mensuelles</div>
+            <div class="card-body"><canvas id="consultChart"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-xl-6">
+          <div class="card chart-card">
+            <div class="card-header"><i class="fas fa-coins me-2"></i>Chiffre d’affaires mensuel</div>
+            <div class="card-body"><canvas id="caChart"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-xl-6">
+          <div class="card chart-card">
+            <div class="card-header"><i class="fas fa-venus-mars me-2"></i>Répartition par sexe</div>
+            <div class="card-body"><canvas id="genderChart"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-xl-6">
+          <div class="card chart-card">
+            <div class="card-header"><i class="fas fa-chart-area me-2"></i>Tranches d’âge</div>
+            <div class="card-body"><canvas id="ageChart"></canvas></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-{% include 'footer.html' ignore missing %}
+<footer class="text-center py-3">
+  <p class="small mb-1" style="color: white;">
+    <i class="fas fa-heartbeat me-1"></i>
+    SASTOUKA DIGITAL © 2025 • sastoukadigital@gmail.com tel +212652084735
+  </p>
+</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 const CHARTS={{ charts|tojson }};
-Chart.defaults.color='#333';
-Chart.defaults.font.family="'Segoe UI','Helvetica Neue',Arial'";
+Chart.defaults.color='var(--text-color)'; /* Use theme variable */
+Chart.defaults.font.family="'Poppins', sans-serif"; /* Use theme font */
 Chart.defaults.devicePixelRatio = 2;
 
 /* Plugin datalabels si présent */
@@ -812,12 +1024,12 @@ if(window.ChartDataLabels){ Chart.register(window.ChartDataLabels); }
 Chart.defaults.plugins.datalabels.font={weight:'600'};
 const noLegend={plugins:{legend:{display:false}}};
 
-/* Palettes dédiées */
+/* Palettes dédiées avec des couleurs vives */
 const COLORS={
-  consult:'#FF9800',
-  ca:'#4CAF50',
-  age:'#9C27B0',
-  gender:['#2196F3','#E91E63','#9E9E9E']
+  consult:'#FF5733', /* Vibrant Orange-Red */
+  ca:'#33FF57',    /* Bright Green */
+  age:'#8A2BE2',   /* Blue Violet */
+  gender:['#00BFFF', '#FF1493', '#FFD700'] /* Deep Sky Blue, Deep Pink, Gold */
 };
 
 /* Activité */
@@ -826,8 +1038,35 @@ if(CHARTS.activite_labels?.length){
    {type:'bar',data:{labels:CHARTS.activite_labels,
                      datasets:[{data:CHARTS.activite_values,backgroundColor:COLORS.consult,borderRadius:4}]},
     options:noLegend});
+} else {
+  // Afficher un graphique vide avec un message si aucune donnée
+  new Chart(document.getElementById('consultChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Aucune donnée'],
+      datasets: [{
+        data: [0], // Valeur zéro pour un graphique vide
+        backgroundColor: '#cccccc', // Couleur neutre
+        borderRadius: 4
+      }]
+    },
+    options: {
+      ...noLegend,
+      plugins: {
+        ...noLegend.plugins,
+        datalabels: {
+          color: 'var(--text-color)',
+          formatter: () => 'Aucune donnée disponible'
+        }
+      },
+      scales: {
+        x: { display: false }, // Cacher l'axe X
+        y: { display: false }  // Cacher l'axe Y
+      }
+    }
+  });
 }
-/* CA */
+
 /* CA */
 if (CHARTS.ca_labels?.length) {
   new Chart(document.getElementById('caChart'), {
@@ -841,23 +1080,58 @@ if (CHARTS.ca_labels?.length) {
       }]
     },
     options: {
-      // on conserve juste la légende désactivée
       plugins: {
         legend: { display: false }
       },
-      // on force l’axe X en « category » pour n’afficher que le label exact
       scales: {
         x: {
           type: 'category',
           title: {
             display: true,
-            text: 'Mois'
+            text: '',
+            color: 'var(--text-color)'
+          },
+          ticks: {
+            color: 'var(--text-color)'
+          }
+        },
+        y: {
+          ticks: {
+            color: 'var(--text-color)'
           }
         }
       }
     }
   });
+} else {
+  // Afficher un graphique vide avec un message si aucune donnée
+  new Chart(document.getElementById('caChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Aucune donnée'],
+      datasets: [{
+        data: [0],
+        backgroundColor: '#cccccc',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      ...noLegend,
+      plugins: {
+        ...noLegend.plugins,
+        datalabels: {
+          color: 'var(--text-color)',
+          formatter: () => 'Aucune donnée disponible'
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { display: false }
+      }
+    }
+  });
 }
+
 /* Sexe */
 if(CHARTS.genre_labels?.length){
  const total=CHARTS.genre_values.reduce((a,b)=>a+b,0)||1;
@@ -870,20 +1144,70 @@ if(CHARTS.genre_labels?.length){
      maintainAspectRatio:false,
      plugins:{
        legend:{display:false},
-       datalabels:{color:'#fff',font:{size:14},
+       datalabels:{color:'#000000',font:{size:14},
          formatter:(v,ctx)=>ctx.chart.data.labels[ctx.dataIndex]+' '+(v*100/total).toFixed(0)+'%'}
      }}
  });
+} else {
+  // Afficher un graphique vide avec un message si aucune donnée
+  new Chart(document.getElementById('genderChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Aucune donnée'],
+      datasets: [{
+        data: [1], // Une seule tranche pour représenter l'absence de données
+        backgroundColor: ['#cccccc'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          color: 'var(--text-color)',
+          formatter: () => 'Aucune donnée disponible'
+        }
+      }
+    }
+  });
 }
+
 /* Âge */
 if(CHARTS.age_labels?.length){
  new Chart(document.getElementById('ageChart'),
    {type:'bar',data:{labels:CHARTS.age_labels,
                      datasets:[{data:CHARTS.age_values,backgroundColor:COLORS.age,borderRadius:4}]},
     options:noLegend});
+} else {
+  // Afficher un graphique vide avec un message si aucune donnée
+  new Chart(document.getElementById('ageChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Aucune donnée'],
+      datasets: [{
+        data: [0],
+        backgroundColor: '#cccccc',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      ...noLegend,
+      plugins: {
+        ...noLegend.plugins,
+        datalabels: {
+          color: 'var(--text-color)',
+          formatter: () => 'Aucune donnée disponible'
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { display: false }
+      }
+    }
+  });
 }
 </script>
-<!-- Ajouter dans le <body> après la section des graphiques -->
 <div class="modal fade" id="dataAlertModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -917,7 +1241,7 @@ if(CHARTS.age_labels?.length){
   /* Styles pour le modal d'alerte */
   #dataAlertModal .modal-content {
     border: 2px solid var(--warning-color);
-    border-radius: 15px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 0 15px rgba(255, 193, 7, 0.3);
   }
 
@@ -943,17 +1267,21 @@ if(CHARTS.age_labels?.length){
   }
 </style>
 
-<!-- Modal d'alerte UNIQUEMENT ICI -->
-<div class="modal fade" id="dataAlertModal" tabindex="-1">
-  <!-- ... contenu du modal ... -->
-</div>
-
 <script>
-// Ajouter dans la section <script> existante
 document.addEventListener('DOMContentLoaded', function() {
-    {% if get_flashed_messages(category_filter=["warning"]) %}
+    // Check for flashed messages and show modal if a warning is present
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasWarning = urlParams.get('warning') === 'true'; // Assuming you pass a 'warning' param from Flask
+
+    // Or, if you have a way to check flashed messages directly in JS (e.g., via a hidden element or JSON endpoint)
+    // For now, let's assume a simple check or a direct call if Flask flashes a warning
+    // This part would ideally be driven by a server-side check of flashed messages.
+    // As a placeholder, let's use a simple condition.
+    // In a real Flask app, you'd render this script conditionally based on get_flashed_messages()
+    const flashedMessagesDiv = document.querySelector('.alert.alert-warning');
+    if (flashedMessagesDiv) { // If a warning alert is rendered on the page
         new bootstrap.Modal(document.getElementById('dataAlertModal')).show();
-    {% endif %}
+    }
 });
 </script>
 </body>

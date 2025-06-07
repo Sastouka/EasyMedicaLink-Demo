@@ -5,15 +5,37 @@
 #    • Plus aucune référence à utils.ACTIVATION_FILE.
 #    • Boutons de téléchargement toujours affichés en bas.
 #    • Aucune autre ligne d’origine perdue ; filtres propriétaire + rôles inchangés.
+#    • Ajout d'un bouton pour télécharger toutes les données Excel dans un seul fichier.
+#    • Ajout d'un bouton pour importer une base de données Excel (fichiers multiples en feuilles).
+#    • Amélioration de l'esthétique des boutons d'export/import avec icônes et gestion du chargement.
+#    • Réorganisation de l'affichage des boutons : Excel en haut, exécutables en bas.
 # ──────────────────────────────────────────────────────────────────────────────
 
-from flask import Blueprint, render_template_string, request, redirect, url_for, flash, session, abort
+from flask import Blueprint, render_template_string, request, redirect, url_for, flash, session, abort, send_file
 from datetime import datetime
 import json
 from pathlib import Path
 import theme
 import utils
 import login
+import io # Ajout pour la manipulation des fichiers en mémoire
+import pandas as pd # Ajout pour la manipulation des DataFrames et l'écriture Excel
+import os # Ajout pour les opérations sur le système de fichiers
+
+# Importez la fonction _load_all_excels depuis statistique.py
+# Assurez-vous que statistique.py est accessible dans le même répertoire
+# ou dans un chemin d'importation Python.
+try:
+    from statistique import _load_all_excels
+except ImportError:
+    # Fallback si statistique.py n'est pas directement importable,
+    # vous pouvez copier la fonction ici ou gérer l'erreur.
+    print("ATTENTION: Impossible d'importer _load_all_excels de statistique.py. Assurez-vous que le fichier est présent et accessible.")
+    # Définition d'une version minimale pour éviter les erreurs si l'import échoue
+    def _load_all_excels(folder: str) -> dict:
+        print(f"AVERTISSEMENT: _load_all_excels n'est pas disponible. Le téléchargement/importation Excel ne fonctionnera pas.")
+        return {}
+
 
 # Récupération de TRIAL_DAYS pour l’affichage
 try:
@@ -54,121 +76,570 @@ administrateur_template = """
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
   <title>Administration - {{ config.nom_clinique or 'EasyMedicaLink' }}</title>
 
-  <!-- Bootstrap & DataTables -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.datatables.net/1.13.1/css/dataTables.bootstrap5.min.css" rel="stylesheet">
   <link href="https://cdn.datatables.net/responsive/2.4.1/css/responsive.bootstrap5.min.css" rel="stylesheet">
 
-  <!-- Google Fonts & FontAwesome -->
-  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
   <style>
-    :root { {% for var,val in theme_vars.items() %}--{{ var }}:{{ val }};{% endfor %} }
-    body { padding-top:56px; background:var(--bg-color); color:var(--text-color); }
-    .navbar, .offcanvas-header { background:linear-gradient(45deg,var(--primary-color),var(--secondary-color)) !important; }
-    .offcanvas-body, .card, .form-control, .table { background:var(--card-bg) !important; color:var(--text-color) !important; }
-    .card-header { background:var(--primary-color) !important; color:var(--button-text) !important; }
-    .btn-medical { background:linear-gradient(45deg,var(--primary-color),var(--secondary-color)) !important; color:var(--button-text) !important; border:none; }
-    .header-item { font-size:28px !important; }
-    .icon-card { flex:1 1 170px; max-width:180px; color:var(--primary-color); padding:.5rem; }
-    .icon-card i { font-size:40px !important; }
-    .icon-card span { font-size:28px !important; }
-    @media(max-width:575.98px) {
-      .icon-card { flex:1 1 140px; max-width:160px; }
-      .icon-card i { font-size:32px !important; }
-      .icon-card span { font-size:20px !important; }
+    :root {
+      {% for var, val in theme_vars.items() %}
+      --{{ var }}: {{ val }};
+      {% endfor %}
+      --font-primary: 'Poppins', sans-serif;
+      --font-secondary: 'Great Vibes', cursive;
+      --gradient-main: linear-gradient(45deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+      --shadow-light: 0 5px 15px rgba(0, 0, 0, 0.1);
+      --shadow-medium: 0 8px 25px rgba(0, 0, 0, 0.2);
+      --border-radius-lg: 1rem;
+      --border-radius-md: 0.75rem;
+      --border-radius-sm: 0.5rem;
+    }
+
+    body {
+      font-family: var(--font-primary);
+      background: var(--bg-color);
+      color: var(--text-color);
+      padding-top: 56px;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .navbar {
+      background: var(--gradient-main) !important;
+      box-shadow: var(--shadow-medium);
+    }
+    .navbar-brand {
+      font-family: var(--font-secondary);
+      font-size: 2.0rem !important;
+      color: white !important;
+      display: flex;
+      align-items: center;
+      transition: transform 0.3s ease;
+    }
+    .navbar-brand:hover {
+      transform: scale(1.05);
+    }
+    .navbar-toggler {
+      border: none;
+      outline: none;
+    }
+    .navbar-toggler i {
+      color: white;
+      font-size: 1.5rem;
+    }
+
+    .offcanvas-header {
+      background: var(--gradient-main) !important;
+      color: white;
+    }
+    .offcanvas-body {
+      background: var(--card-bg) !important;
+      color: var(--text-color) !important;
+    }
+    .offcanvas-title {
+      font-weight: 600;
+    }
+
+    .card {
+      border-radius: var(--border-radius-lg);
+      box-shadow: var(--shadow-light);
+      background: var(--card-bg) !important;
+      color: var(--text-color) !important;
+      border: none;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      box-shadow: var(--shadow-medium);
+    }
+
+    .card-header {
+      background: var(--primary-color) !important;
+      color: var(--button-text) !important;
+      border-top-left-radius: var(--border-radius-lg);
+      border-top-right-radius: var(--border-radius-lg);
+      padding: 1.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .card-header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255, 255, 255, 0.1);
+      transform: skewY(-5deg);
+      transform-origin: top left;
+      z-index: 0;
+    }
+    .card-header h1, .card-header .header-item, .card-header p {
+      position: relative;
+      z-index: 1;
+      font-size: 1.8rem !important;
+      font-weight: 700;
+    }
+    .card-header i {
+      font-size: 1.8rem !important;
+      margin-right: 0.5rem;
+    }
+    .header-item {
+      font-size: 1.2rem !important;
+      font-weight: 400;
+    }
+
+    /* Floating Labels */
+    .floating-label {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .floating-label input,
+    .floating-label select,
+    .floating-label textarea {
+      padding: 1rem 0.75rem 0.5rem;
+      height: auto;
+      border-radius: var(--border-radius-sm);
+      border: 1px solid var(--secondary-color);
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .floating-label input:focus,
+    .floating-label select:focus,
+    .floating-label textarea:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 0.25rem rgba(var(--primary-color-rgb), 0.25);
+      background-color: var(--card-bg);
+      color: var(--text-color);
+    }
+    .floating-label label {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.75rem;
+      font-size: 1rem;
+      color: var(--text-color-light);
+      transition: all 0.2s ease;
+      pointer-events: none;
+    }
+    .floating-label input:focus + label,
+    .floating-label input:not(:placeholder-shown) + label,
+    .floating-label select:focus + label,
+    .floating-label select:not([value=""]) + label,
+    .floating-label textarea:focus + label,
+    .floating-label textarea:not(:placeholder-shown) + label {
+      top: 0.25rem;
+      left: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--primary-color);
+      background-color: var(--card-bg);
+      padding: 0 0.25rem;
+      transform: translateX(-0.25rem);
+    }
+    .floating-label input[type="date"]:not([value=""])::-webkit-datetime-edit-text,
+    .floating-label input[type="date"]:not([value=""])::-webkit-datetime-edit-month-field,
+    .floating-label input[type="date"]:not([value=""])::-webkit-datetime-edit-day-field,
+    .floating-label input[type="date"]:not([value=""])::-webkit-datetime-edit-year-field {
+      color: var(--text-color);
+    }
+    .floating-label input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: {% if session.theme == 'dark' %}invert(1){% else %}none{% endif %};
+    }
+
+    /* Buttons */
+    .btn {
+      border-radius: var(--border-radius-md);
+      font-weight: 600;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem 1.25rem;
+    }
+    .btn i {
+      margin-right: 0.5rem;
+    }
+    .btn-primary {
+      background: var(--gradient-main);
+      border: none;
+      color: var(--button-text);
+      box-shadow: var(--shadow-light);
+    }
+    .btn-primary:hover {
+      box-shadow: var(--shadow-medium);
+      background: var(--gradient-main);
+      opacity: 0.9;
+    }
+    .btn-success {
+      background-color: var(--success-color);
+      border-color: var(--success-color);
+      color: white;
+      box-shadow: var(--shadow-light); /* Added for consistency */
+    }
+    .btn-success:hover {
+      background-color: var(--success-color-dark);
+      border-color: var(--success-color-dark);
+      box-shadow: var(--shadow-medium);
+    }
+    .btn-warning {
+      background-color: var(--warning-color);
+      border-color: var(--warning-color);
+      color: white;
+    }
+    .btn-warning:hover {
+      background-color: var(--warning-color-dark);
+      border-color: var(--warning-color-dark);
+      box-shadow: var(--shadow-medium);
+    }
+    .btn-danger {
+      background-color: var(--danger-color);
+      border-color: var(--danger-color);
+      color: white;
+    }
+    .btn-danger:hover {
+      background-color: var(--danger-color-dark);
+      border-color: var(--danger-color-dark);
+      box-shadow: var(--shadow-medium);
+    }
+    .btn-info { /* WhatsApp button */
+      background-color: #25D366;
+      border-color: #25D366;
+      color: white;
+      box-shadow: var(--shadow-light); /* Added for consistency */
+    }
+    .btn-info:hover {
+      background-color: #1DA851;
+      border-color: #1DA851;
+      box-shadow: var(--shadow-medium);
+    }
+    .btn-outline-secondary {
+      border-color: var(--secondary-color);
+      color: var(--text-color);
+      background-color: transparent;
+    }
+    .btn-outline-secondary:hover {
+      background-color: var(--secondary-color);
+      color: white;
+      box-shadow: var(--shadow-light);
+    }
+    .btn-secondary {
+      background-color: var(--secondary-color);
+      border-color: var(--secondary-color);
+      color: var(--button-text);
+    }
+    .btn-secondary:hover {
+      background-color: var(--secondary-color-dark);
+      border-color: var(--secondary-color-dark);
+      box-shadow: var(--shadow-medium);
+    }
+    .btn-sm {
+      padding: 0.5rem 0.8rem;
+      font-size: 0.875rem;
+    }
+
+    /* Icon Cards */
+    .icon-card {
+      flex: 1 1 170px;
+      max-width: 180px;
+      color: var(--primary-color);
+      padding: 0.5rem;
+      text-decoration: none;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .icon-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--shadow-medium);
+    }
+    .icon-card i {
+      font-size: 40px !important;
+      margin-bottom: 0.5rem;
+    }
+    .icon-card span {
+      font-size: 1.1rem !important;
+      font-weight: 600;
+      color: var(--text-color);
+    }
+    .icon-card .border {
+      border-radius: var(--border-radius-lg);
+      border: 1px solid var(--border-color) !important;
+      background-color: var(--card-bg);
+      box-shadow: var(--shadow-light);
+      transition: all 0.2s ease;
+    }
+    .icon-card:hover .border {
+      border-color: var(--primary-color) !important;
+    }
+
+    /* DataTables */
+    #usersTable_wrapper .dataTables_filter input,
+    #usersTable_wrapper .dataTables_length select {
+      border-radius: var(--border-radius-sm);
+      border: 1px solid var(--secondary-color);
+      padding: 0.5rem 0.75rem;
+      background-color: var(--card-bg);
+      color: var(--text-color);
+    }
+    #usersTable_wrapper .dataTables_filter input:focus,
+    #usersTable_wrapper .dataTables_length select:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 0.25rem rgba(var(--primary-color-rgb), 0.25);
+    }
+    /* Hide the dropdown arrow for DataTables length select */
+    #usersTable_wrapper .dataTables_length select {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23333' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 0.65em auto;
+      padding-right: 2rem;
+    }
+    body.dark-theme #usersTable_wrapper .dataTables_length select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3E%3C/svg%3E");
+    }
+
+    #usersTable_wrapper .dataTables_paginate .pagination .page-item .page-link {
+      border-radius: var(--border-radius-sm);
+      margin: 0 0.2rem;
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      border: 1px solid var(--secondary-color);
+    }
+    #usersTable_wrapper .dataTables_paginate .pagination .page-item.active .page-link {
+      background: var(--gradient-main);
+      border-color: var(--primary-color);
+      color: var(--button-text);
+    }
+    #usersTable_wrapper .dataTables_paginate .pagination .page-item .page-link:hover {
+      background-color: rgba(var(--primary-color-rgb), 0.1);
+      color: var(--primary-color);
+    }
+    .table {
+      --bs-table-bg: var(--card-bg);
+      --bs-table-color: var(--text-color);
+      --bs-table-striped-bg: var(--table-striped-bg);
+      --bs-table-striped-color: var(--text-color);
+      --bs-table-border-color: var(--border-color);
+    }
+    .table thead th {
+      background-color: var(--primary-color);
+      color: var(--button-text);
+      border-color: var(--primary-color);
+    }
+    .table tbody tr {
+      transition: background-color 0.2s ease;
+    }
+    .table tbody tr:hover {
+      background-color: rgba(var(--primary-color-rgb), 0.05) !important;
+    }
+
+    /* Flash messages */
+    .alert {
+      border-radius: var(--border-radius-md);
+      font-weight: 600;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1060;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: var(--shadow-medium);
+      animation: fadeInOut 5s forwards;
+    }
+
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+      10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    }
+
+    /* Footer */
+    footer {
+      background: var(--gradient-main);
+      color: white;
+      font-weight: 300;
+      box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.1);
+      padding-top: 0.75rem;
+      padding-bottom: 0.75rem;
+    }
+    footer p {
+      margin-bottom: 0.25rem;
+    }
+
+    /* Modals */
+    .modal-content {
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      border-radius: var(--border-radius-lg);
+      box-shadow: var(--shadow-medium);
+    }
+    .modal-header {
+      background: var(--gradient-main);
+      color: var(--button-text);
+      border-top-left-radius: var(--border-radius-lg);
+      border-top-right-radius: var(--border-radius-lg);
+    }
+    .modal-title {
+      color: var(--button-text);
+    }
+    .btn-close {
+      filter: invert(1);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .card-header h1 {
+        font-size: 1.5rem !important;
+      }
+      .card-header .header-item {
+        font-size: 1rem !important;
+      }
+      .card-header i {
+        font-size: 1.5rem !important;
+      }
+      .icon-card {
+        flex: 1 1 140px;
+        max-width: 160px;
+      }
+      .icon-card i {
+        font-size: 32px !important;
+      }
+      .icon-card span {
+        font-size: 20px !important;
+      }
+      .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+      }
+      .d-flex.gap-2 {
+        flex-direction: column;
+      }
+      .dataTables_filter, .dataTables_length {
+        text-align: center !important;
+      }
+      .dataTables_filter input, .dataTables_length select {
+        width: 100%;
+        margin-bottom: 0.5rem;
+      }
+
+      /* Responsive for export/import buttons */
+      .excel-buttons .btn {
+          padding: 0.6rem 1rem; /* Smaller padding */
+          font-size: 0.9rem; /* Smaller font */
+      }
+      .excel-buttons .btn .full-text {
+          display: none; /* Hide full text on small screens */
+      }
+      .excel-buttons .btn .abbr-text {
+          display: inline; /* Show abbreviation on small screens */
+      }
+      .executable-buttons .btn {
+          padding: 0.6rem 1rem; /* Smaller padding */
+          font-size: 0.9rem; /* Smaller font */
+      }
+      .executable-buttons .btn .full-text {
+          display: none; /* Hide full text on small screens */
+      }
+      .executable-buttons .btn .abbr-text {
+          display: inline; /* Show abbreviation on small screens */
+      }
+    }
+
+    @media (min-width: 769px) {
+        .excel-buttons .btn .full-text {
+            display: inline; /* Show full text on larger screens */
+        }
+        .excel-buttons .btn .abbr-text {
+            display: none; /* Hide abbreviation on larger screens */
+        }
+        .executable-buttons .btn .full-text {
+            display: inline; /* Show full text on larger screens */
+        }
+        .executable-buttons .btn .abbr-text {
+            display: none; /* Hide abbreviation on larger screens */
+        }
     }
   </style>
 </head>
 <body>
-  <!-- Navbar -->
   <nav class="navbar navbar-dark fixed-top">
     <div class="container-fluid d-flex align-items-center">
       <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#settingsOffcanvas">
         <i class="fas fa-bars"></i>
       </button>
       <a class="navbar-brand ms-auto d-flex align-items-center"
-         href="{{ url_for('accueil.accueil') }}"
-         style="font-family:'Great Vibes',cursive;font-size:2rem;color:white;">
-        <i class="fas fa-home me-2" style="transform:translateX(-0.5cm);"></i>
+         href="{{ url_for('accueil.accueil') }}">
+        <i class="fas fa-home me-2"></i>
         <i class="fas fa-heartbeat me-2"></i>EasyMedicaLink
       </a>
     </div>
   </nav>
 
-  <!-- Offcanvas Paramètres -->
   <div class="offcanvas offcanvas-start" tabindex="-1" id="settingsOffcanvas">
     <div class="offcanvas-header text-white">
       <h5 class="offcanvas-title"><i class="fas fa-cog me-2"></i>Paramètres</h5>
       <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
     </div>
     <div class="offcanvas-body">
-      <!-- Boutons actions -->
       <div class="d-flex flex-column gap-3 mb-4">
         <a href="{{ url_for('login.change_password') }}"
-          data-bs-dismiss="offcanvas"
-          onclick="window.location.href='{{ url_for('login.change_password') }}'; return false;"
-          class="btn-medical rounded-2xl shadow-lg d-flex align-items-center justify-content-center py-2">
+          class="btn btn-outline-secondary d-flex align-items-center justify-content-center py-2">
           <i class="fas fa-key me-2"></i>Modifier mot de passe
         </a>
         <a href="{{ url_for('login.logout') }}"
-          data-bs-dismiss="offcanvas"
-          onclick="window.location.href='{{ url_for('login.logout') }}'; return false;"
-          class="btn-medical rounded-2xl shadow-lg d-flex align-items-center justify-content-center py-2">
+          class="btn btn-outline-secondary d-flex align-items-center justify-content-center py-2">
           <i class="fas fa-sign-out-alt me-2"></i>Déconnexion
         </a>
         <a href="{{ url_for('activation', bypass=1) }}"
-          data-bs-dismiss="offcanvas"
-          onclick="window.location.href='{{ url_for('activation', bypass=1) }}'; return false;"
-          class="btn-medical rounded-2xl shadow-lg d-flex align-items-center justify-content-center py-2">
+          class="btn btn-outline-secondary d-flex align-items-center justify-content-center py-2">
           <i class="fas fa-bolt me-2"></i>Changer de plan
         </a>
       </div>
 
-      <!-- Formulaire de paramétrage -->
       <form id="adminSettingsForm" action="{{ url_for('settings') }}" method="POST">
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Nom de la clinique</label>
-          <input type="text" name="nom_clinique" value="{{ config.nom_clinique or '' }}" class="form-control" required>
+        <div class="mb-3 floating-label">
+          <input type="text" name="nom_clinique" id="nom_clinique" value="{{ config.nom_clinique or '' }}" class="form-control" placeholder=" " required>
+          <label for="nom_clinique">Nom de la clinique</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Cabinet</label>
-          <input type="text" name="cabinet" value="{{ config.cabinet or '' }}" class="form-control">
+        <div class="mb-3 floating-label">
+          <input type="text" name="cabinet" id="cabinet" value="{{ config.cabinet or '' }}" class="form-control" placeholder=" ">
+          <label for="cabinet">Cabinet</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Centre médical</label>
-          <input type="text" name="centre_medical" value="{{ config.centre_medical or '' }}" class="form-control">
+        <div class="mb-3 floating-label">
+          <input type="text" name="centre_medical" id="centre_medical" value="{{ config.centre_medical or '' }}" class="form-control" placeholder=" ">
+          <label for="centre_medical">Centre médical</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Nom du médecin</label>
-          <input type="text" name="nom_medecin" value="{{ config.doctor_name or '' }}" class="form-control">
+        <div class="mb-3 floating-label">
+          <input type="text" name="nom_medecin" id="nom_medecin" value="{{ config.doctor_name or '' }}" class="form-control" placeholder=" ">
+          <label for="nom_medecin">Nom du médecin</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Lieu</label>
-          <input type="text" name="lieu" value="{{ config.location or '' }}" class="form-control">
+        <div class="mb-3 floating-label">
+          <input type="text" name="lieu" id="lieu" value="{{ config.location or '' }}" class="form-control" placeholder=" ">
+          <label for="lieu">Lieu</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Thème</label>
-          <select id="adminThemeSelect" name="theme" class="form-select">
+        <div class="mb-3 floating-label">
+          <select id="adminThemeSelect" name="theme" class="form-select" placeholder=" ">
             {% for t in theme_names %}
               <option value="{{ t }}" {% if config.theme == t %}selected{% endif %}>{{ t.capitalize() }}</option>
             {% endfor %}
           </select>
+          <label for="adminThemeSelect">Thème</label>
         </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Arrière-plan</label>
-          <select name="arriere_plan" class="form-select">
+        <div class="mb-3 floating-label">
+          <select name="arriere_plan" id="arriere_plan" class="form-select" placeholder=" ">
             {% for bg in backgrounds %}
               <option value="{{ bg }}" {% if config.background_file_path.endswith(bg) %}selected{% endif %}>{{ bg }}</option>
             {% endfor %}
           </select>
+          <label for="arriere_plan">Arrière-plan</label>
         </div>
-
-      <form id="adminSettingsForm" action="{{ url_for('settings') }}" method="POST">
-        <input type="hidden" name="theme" id="hiddenTheme">
-        <button class="btn btn-medical rounded-2xl shadow-lg w-100 py-2" type="submit">
+        <button class="btn btn-success w-100 py-2" type="submit">
           <i class="fas fa-save me-2"></i>Enregistrer les modifications
         </button>
       </form>
@@ -176,18 +647,30 @@ administrateur_template = """
   </div>
 
   <script>
-    const themeSel=document.getElementById('adminThemeSelect'),hTheme=document.getElementById('hiddenTheme');
-    hTheme.value=themeSel.value;
-    themeSel.addEventListener('change',()=>hTheme.value=themeSel.value);
     document.getElementById('adminSettingsForm').addEventListener('submit',e=>{
       e.preventDefault();
       fetch(e.target.action,{method:'POST',body:new FormData(e.target),credentials:'same-origin'})
-        .then(r=>{if(!r.ok)throw new Error();return r;}).then(()=>location.reload())
-        .catch(()=>alert("Impossible d'enregistrer"));
+        .then(r=>{
+          if(!r.ok) {
+            Swal.fire({icon:'error',title:'Erreur',text:'Échec de la sauvegarde.'});
+            throw new Error('Network response was not ok.');
+          }
+          return r.json(); // Assuming the settings endpoint returns JSON
+        })
+        .then(data => {
+          Swal.fire({icon:'success',title:'Enregistré',text:'Paramètres sauvegardés.'}).then(() => {
+            location.reload();
+          });
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          if (!error.message.includes('Network response was not ok.')) {
+            Swal.fire({icon:'error',title:'Erreur',text:'Une erreur inattendue est survenue.'});
+          }
+        });
     });
   </script>
 
-  <!-- Carte identité + Infos licence -->
   <div class="container-fluid my-4">
     <div class="row justify-content-center">
       <div class="col-12">
@@ -209,24 +692,24 @@ administrateur_template = """
             </div>
 
             <div class="d-flex justify-content-around flex-wrap gap-3">
-              <a href="{{ url_for('rdv.rdv_home') }}" class="text-decoration-none text-center icon-card">
+              <a href="{{ url_for('rdv.rdv_home') }}" class="icon-card text-center">
                 <div class="border rounded h-100 p-3 d-flex flex-column justify-content-center align-items-center">
-                  <i class="fas fa-calendar-alt fa-2x mb-2"></i><span>RDV</span>
+                  <i class="fas fa-calendar-check mb-2"></i><span>RDV</span>
                 </div>
               </a>
-              <a href="{{ url_for('index') }}" class="text-decoration-none text-center icon-card">
+              <a href="{{ url_for('index') }}" class="icon-card text-center">
                 <div class="border rounded h-100 p-3 d-flex flex-column justify-content-center align-items-center">
-                  <i class="fas fa-stethoscope fa-2x mb-2"></i><span>Consultation</span>
+                  <i class="fas fa-stethoscope mb-2"></i><span>Consultations</span>
                 </div>
               </a>
-              <a href="{{ url_for('facturation.facturation_home') }}" class="text-decoration-none text-center icon-card">
+              <a href="{{ url_for('facturation.facturation_home') }}" class="icon-card text-center">
                 <div class="border rounded h-100 p-3 d-flex flex-column justify-content-center align-items-center">
-                  <i class="fas fa-file-invoice-dollar fa-2x mb-2"></i><span>Facturation</span>
+                  <i class="fas fa-file-invoice-dollar mb-2"></i><span>Factures</span>
                 </div>
               </a>
-              <a href="{{ url_for('statistique.stats_home') }}" class="text-decoration-none text-center icon-card">
+              <a href="{{ url_for('statistique.stats_home') }}" class="icon-card text-center">
                 <div class="border rounded h-100 p-3 d-flex flex-column justify-content-center align-items-center">
-                  <i class="fas fa-chart-pie fa-2x mb-2"></i><span>Statistique</span>
+                  <i class="fas fa-chart-pie mb-2"></i><span>Statistiques</span>
                 </div>
               </a>
             </div>
@@ -236,7 +719,6 @@ administrateur_template = """
     </div>
   </div>
 
-  <!-- Gestion des comptes -->
   <div class="container-fluid my-4">
     <div class="row justify-content-center">
       <div class="col-12">
@@ -244,16 +726,28 @@ administrateur_template = """
           <div class="card-header text-center"><h2 class="header-item">Administration des comptes</h2></div>
           <div class="card-body">
             <form class="row g-3 mb-4" method="POST" action="{{ url_for('administrateur_bp.create_user') }}">
-              <div class="col-12 col-md-2"><input name="nom" class="form-control" placeholder="Nom" required></div>
-              <div class="col-12 col-md-2"><input name="prenom" class="form-control" placeholder="Prénom" required></div>
-              <div class="col-12 col-md-2">
-                <select name="role" class="form-select" required>
+              <div class="col-12 col-md-2 floating-label">
+                <input name="nom" id="createNom" class="form-control" placeholder=" " required>
+                <label for="createNom">Nom</label>
+              </div>
+              <div class="col-12 col-md-2 floating-label">
+                <input name="prenom" id="createPrenom" class="form-control" placeholder=" " required>
+                <label for="createPrenom">Prénom</label>
+              </div>
+              <div class="col-12 col-md-2 floating-label">
+                <select name="role" id="createRole" class="form-select" placeholder=" " required>
                   <option value="medecin">Médecin</option>
                   <option value="assistante">Assistante</option>
                 </select>
+                <label for="createRole">Rôle</label>
               </div>
-              <div class="col-12 col-md-2"><input name="password" type="password" class="form-control" placeholder="Mot de passe" required></div>
-              <div class="col-12 col-md-2"><button class="btn btn-medical w-100" type="submit"><i class="fas fa-user-plus me-1"></i>Créer</button></div>
+              <div class="col-12 col-md-2 floating-label">
+                <input name="password" id="createPassword" type="password" class="form-control" placeholder=" " required>
+                <label for="createPassword">Mot de passe</label>
+              </div>
+              <div class="col-12 col-md-2">
+                <button class="btn btn-primary w-100" type="submit"><i class="fas fa-user-plus me-1"></i>Créer</button>
+              </div>
             </form>
 
             <div class="table-responsive">
@@ -268,11 +762,11 @@ administrateur_template = """
                     <td>{{ info.role }}</td>
                     <td>{{ 'Oui' if info.active else 'Non' }}</td>
                     <td>
-                      <a href="#" class="btn btn-outline-primary btn-sm me-1 editBtn" data-email="{{ email }}"><i class="fas fa-edit"></i></a>
-                      <a href="{{ url_for('administrateur_bp.toggle_active', user_email=email) }}" class="btn btn-outline-secondary btn-sm me-1">
+                      <a href="#" class="btn btn-sm btn-warning me-1 editBtn" data-email="{{ email }}" title="Modifier"><i class="fas fa-edit"></i></a>
+                      <a href="{{ url_for('administrateur_bp.toggle_active', user_email=email) }}" class="btn btn-sm btn-outline-secondary me-1" title="Activer/Désactiver">
                         {% if info.active %}<i class="fas fa-user-slash"></i>{% else %}<i class="fas fa-user-check"></i>{% endif %}
                       </a>
-                      <a href="{{ url_for('administrateur_bp.delete_user', user_email=email) }}" class="btn btn-outline-danger btn-sm"><i class="fas fa-trash"></i></a>
+                      <a href="#" onclick="confirmDeleteUser('{{ email }}')" class="btn btn-sm btn-danger" title="Supprimer"><i class="fas fa-trash"></i></a>
                     </td>
                   </tr>
                   {% endfor %}
@@ -286,42 +780,76 @@ administrateur_template = """
     </div>
   </div>
 
-  <div class="container-fluid my-4">
-    <div class="d-flex justify-content-center gap-3">
+  <div class="container-fluid my-4 mb-5">
+    <div class="d-flex justify-content-center gap-3 flex-wrap excel-buttons">
+      <a href="{{ url_for('administrateur_bp.download_all_excels') }}" class="btn btn-success">
+        <i class="fas fa-file-excel me-2"></i><span class="full-text">Télécharger votre base de données</span><span class="abbr-text">Export DB</span>
+      </a>
+      <form action="{{ url_for('administrateur_bp.upload_excel_database') }}" method="POST" enctype="multipart/form-data" id="uploadExcelForm">
+          <input type="file" name="excel_file" id="excel_file_upload" accept=".xlsx,.xls" class="d-none">
+          <label for="excel_file_upload" class="btn btn-info">
+              <i class="fas fa-upload me-2"></i><span class="full-text">Importer votre base de données</span><span class="abbr-text">Import DB</span>
+          </label>
+          <button type="submit" class="btn btn-info" id="upload_button" style="display:none;">
+              <span id="upload_button_text"><i class="fas fa-arrow-up me-2"></i>Confirmer l'importation</span>
+              <span id="upload_spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display:none;"></span>
+          </button>
+      </form>
+    </div>
+    <div class="d-flex justify-content-center gap-3 flex-wrap mt-3 executable-buttons">
       {% if win64_filename %}
-      <a href="{{ url_for('static', filename=win64_filename) }}" class="btn btn-medical">
-        Télécharger EasyMedicalLink Win64
+      <a href="{{ url_for('static', filename=win64_filename) }}" class="btn btn-primary">
+        <i class="fas fa-download me-2"></i><span class="full-text">Télécharger EasyMedicalLink Win64</span><span class="abbr-text">Win64</span>
       </a>
       {% endif %}
       {% if win32_filename %}
-      <a href="{{ url_for('static', filename=win32_filename) }}" class="btn btn-medical">
-        Télécharger EasyMedicalLink Win32
+      <a href="{{ url_for('static', filename=win32_filename) }}" class="btn btn-primary">
+        <i class="fas fa-download me-2"></i><span class="full-text">Télécharger EasyMedicalLink Win32</span><span class="abbr-text">Win32</span>
       </a>
       {% endif %}
     </div>
   </div>
 
-  <!-- Modal + JS -->
   <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
       <form id="editForm" method="POST" class="modal-content" action="{{ url_for('administrateur_bp.edit_user') }}">
-        <div class="modal-header"><h5 class="modal-title">Modifier l'utilisateur</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header"><h5 class="modal-title">Modifier l'utilisateur</h5><button class="btn-close btn-close-white" type="button" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <input type="hidden" name="email" id="editEmail">
-          <div class="mb-3"><label class="form-label">Adresse email</label><input id="newEmail" name="new_email" type="email" class="form-control" required></div>
-          <div class="mb-3"><label class="form-label">Nouveau mot de passe</label><input id="newPassword" name="new_password" type="password" class="form-control" placeholder="Laisser vide pour ne pas changer"></div>
-          <div class="mb-3"><input id="editNom" name="nom" class="form-control" placeholder="Nom" required></div>
-          <div class="mb-3"><input id="editPrenom" name="prenom" class="form-control" placeholder="Prénom" required></div>
-          <div class="mb-3">
-            <select id="editRole" name="role" class="form-select" required>
+          <div class="mb-3 floating-label">
+            <input id="newEmail" name="new_email" type="email" class="form-control" placeholder=" " required>
+            <label for="newEmail">Adresse email</label>
+          </div>
+          <div class="mb-3 floating-label">
+            <input id="newPassword" name="new_password" type="password" class="form-control" placeholder="Laisser vide pour ne pas changer">
+            <label for="newPassword">Nouveau mot de passe</label>
+          </div>
+          <div class="mb-3 floating-label">
+            <input id="editNom" name="nom" class="form-control" placeholder=" " required>
+            <label for="editNom">Nom</label>
+          </div>
+          <div class="mb-3 floating-label">
+            <input id="editPrenom" name="prenom" class="form-control" placeholder=" " required>
+            <label for="editPrenom">Prénom</label>
+          </div>
+          <div class="mb-3 floating-label">
+            <select id="editRole" name="role" class="form-select" placeholder=" " required>
               <option value="medecin">Médecin</option><option value="assistante">Assistante</option>
             </select>
+            <label for="editRole">Rôle</label>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-medical" type="submit">Enregistrer</button></div>
+        <div class="modal-footer"><button class="btn btn-primary" type="submit">Enregistrer</button></div>
       </form>
     </div>
   </div>
+
+  <footer class="text-center py-3">
+    <p class="small mb-1" style="color: white;">
+      <i class="fas fa-heartbeat me-1"></i>
+      SASTOUKA DIGITAL © 2025 • sastoukadigital@gmail.com tel +212652084735
+    </p>
+  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -329,11 +857,12 @@ administrateur_template = """
   <script src="https://cdn.datatables.net/1.13.1/js/dataTables.bootstrap5.min.js"></script>
   <script src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
   <script src="https://cdn.datatables.net/responsive/2.4.1/js/responsive.bootstrap5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     document.addEventListener('DOMContentLoaded',()=>{
       new DataTable('#usersTable',{
         responsive:true,
-        lengthChange:false,
+        lengthChange:true, /* Re-enabled length change */
         language:{url:"//cdn.datatables.net/plug-ins/1.13.1/i18n/fr-FR.json"}
       });
     });
@@ -341,7 +870,7 @@ administrateur_template = """
       btn.addEventListener('click',e=>{
         e.preventDefault();
         const email=btn.dataset.email;
-        fetch(`/administrateur/get_user/${email}`).then(r=>r.json()).then(u=>{
+        fetch(`/administrateur/get_user/${encodeURIComponent(email)}`).then(r=>r.json()).then(u=>{
           document.getElementById('editEmail').value=email;
           document.getElementById('newEmail').value=email;
           document.getElementById('editNom').value=u.nom;
@@ -353,8 +882,63 @@ administrateur_template = """
     });
     document.getElementById('editForm').addEventListener('submit',e=>{
       e.preventDefault();
-      fetch(e.target.action,{method:'POST',body:new FormData(e.target),credentials:'same-origin'}).then(()=>location.reload());
+      fetch(e.target.action,{method:'POST',body:new FormData(e.target),credentials:'same-origin'})
+        .then(r=>{
+          if(!r.ok) {
+            Swal.fire({icon:'error',title:'Erreur',text:'Échec de la sauvegarde.'});
+            throw new Error('Network response was not ok.');
+          }
+          return r.text(); // Assuming it returns text or redirects
+        })
+        .then(()=>location.reload())
+        .catch(error => {
+          console.error('Error:', error);
+          if (!error.message.includes('Network response was not ok.')) {
+            Swal.fire({icon:'error',title:'Erreur',text:'Une erreur inattendue est survenue.'});
+          }
+        });
     });
+
+    // SweetAlert for delete user confirmation
+    function confirmDeleteUser(email) {
+        Swal.fire({
+            title: 'Êtes-vous sûr?',
+            text: `Vous êtes sur le point de supprimer l'utilisateur ${email}. Cette action est irréversible!`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Oui, supprimer!',
+            cancelButtonText: 'Annuler'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.location.href = `{{ url_for('administrateur_bp.delete_user', user_email='') }}${encodeURIComponent(email)}`;
+            }
+        });
+    }
+
+    // Gérer l'affichage du bouton de confirmation d'importation et l'indicateur de chargement
+    document.getElementById('excel_file_upload').addEventListener('change', function() {
+        const uploadButton = document.getElementById('upload_button');
+        if (this.files.length > 0) {
+            uploadButton.style.display = 'inline-flex';
+        } else {
+            uploadButton.style.display = 'none';
+        }
+    });
+
+    document.getElementById('uploadExcelForm').addEventListener('submit', function() {
+        const uploadButton = document.getElementById('upload_button');
+        const uploadButtonText = document.getElementById('upload_button_text');
+        const uploadSpinner = document.getElementById('upload_spinner');
+
+        // Afficher le spinner et désactiver le bouton
+        uploadButtonText.style.display = 'none';
+        uploadSpinner.style.display = 'inline-block';
+        uploadButton.disabled = true;
+        uploadButton.classList.add('no-pointer-events'); // Prevent further clicks
+    });
+
   </script>
 </body>
 </html>
@@ -394,6 +978,13 @@ def dashboard():
     config       = utils.load_config()
     current_date = datetime.now().strftime("%Y-%m-%d")
 
+    # Get available background files for settings form
+    backgrounds_folder = utils.BACKGROUND_FOLDER
+    backgrounds = []
+    if os.path.exists(backgrounds_folder):
+        backgrounds = [f for f in os.listdir(backgrounds_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.pdf'))]
+
+
     return render_template_string(
         administrateur_template,
         users=users,
@@ -404,7 +995,8 @@ def dashboard():
         plan=_current_plan(),
         admin_email=admin_email,
         win64_filename=win64_filename,
-        win32_filename=win32_filename
+        win32_filename=win32_filename,
+        backgrounds=backgrounds # Pass backgrounds to the template
     )
 
 @administrateur_bp.route('/get_user/<user_email>')
@@ -471,3 +1063,100 @@ def delete_user(user_email):
         users.pop(user_email)
         login.save_users(users)
     return redirect(url_for('administrateur_bp.dashboard'))
+
+@administrateur_bp.route("/download_all_excels")
+def download_all_excels():
+    # Vérification des autorisations (seuls les administrateurs peuvent télécharger)
+    if session.get("role") != "admin":
+        flash("Accès réservé aux administrateurs.", "danger")
+        return redirect(url_for("accueil.accueil")) # Rediriger vers l'accueil ou login
+
+    try:
+        # Charger tous les DataFrames depuis le dossier Excel
+        df_map = _load_all_excels(utils.EXCEL_FOLDER)
+
+        if not df_map:
+            flash("Aucun fichier Excel trouvé pour l'export.", "warning")
+            return redirect(url_for("administrateur_bp.dashboard"))
+
+        # Créer un buffer en mémoire pour le fichier Excel
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            for filename, df in df_map.items():
+                # Nettoyer le nom de la feuille (max 31 caractères, pas de caractères invalides)
+                sheet_name = filename.replace(".xlsx", "").replace(".xls", "")
+                # Supprimer les caractères non autorisés dans les noms de feuille Excel
+                sheet_name = "".join(c for c in sheet_name if c.isalnum() or c in [' ', '_', '-'])
+                sheet_name = sheet_name[:31] # Limite de 31 caractères pour les noms de feuille Excel
+                
+                # Écrire le DataFrame dans une feuille du fichier Excel
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+        buffer.seek(0) # Remettre le curseur au début du buffer
+
+        # Préparer le nom du fichier de téléchargement
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"EasyMedicaLink_Donnees_Excel_{timestamp}.xlsx"
+
+        return send_file(
+            buffer,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        # Gérer les erreurs et flasher un message
+        flash(f"Erreur lors de la génération du fichier Excel : {e}", "danger")
+        return redirect(url_for("administrateur_bp.dashboard"))
+
+@administrateur_bp.route("/upload_excel_database", methods=["POST"])
+def upload_excel_database():
+    # Vérification des autorisations (seuls les administrateurs peuvent importer)
+    if session.get("role") != "admin":
+        flash("Accès réservé aux administrateurs.", "danger")
+        return redirect(url_for("accueil.accueil"))
+
+    if 'excel_file' not in request.files:
+        flash("Aucun fichier n'a été sélectionné.", "warning")
+        return redirect(url_for("administrateur_bp.dashboard"))
+
+    file = request.files['excel_file']
+
+    if file.filename == '':
+        flash("Aucun fichier n'a été sélectionné.", "warning")
+        return redirect(url_for("administrateur_bp.dashboard"))
+
+    if file and (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        try:
+            # Lire toutes les feuilles du fichier Excel importé
+            # sheet_name=None retourne un dictionnaire de DataFrames
+            imported_dfs = pd.read_excel(file.stream, sheet_name=None)
+
+            # Parcourir les fichiers Excel existants dans le dossier utils.EXCEL_FOLDER
+            updated_count = 0
+            for original_filename in os.listdir(utils.EXCEL_FOLDER):
+                if original_filename.lower().endswith(('.xlsx', '.xls')):
+                    # Nettoyer le nom du fichier pour le faire correspondre aux noms de feuille
+                    # C'est l'inverse du nettoyage fait lors de l'exportation
+                    cleaned_sheet_name = original_filename.replace(".xlsx", "").replace(".xls", "")
+                    cleaned_sheet_name = "".join(c for c in cleaned_sheet_name if c.isalnum() or c in [' ', '_', '-'])
+                    cleaned_sheet_name = cleaned_sheet_name[:31] # S'assurer que ça correspond à la logique d'export
+
+                    if cleaned_sheet_name in imported_dfs:
+                        df_to_save = imported_dfs[cleaned_sheet_name]
+                        original_file_path = os.path.join(utils.EXCEL_FOLDER, original_filename)
+                        
+                        # Sauvegarder le DataFrame importé à l'emplacement du fichier original
+                        df_to_save.to_excel(original_file_path, index=False)
+                        updated_count += 1
+            
+            if updated_count > 0:
+                flash(f"{updated_count} fichier(s) Excel mis à jour avec succès.", "success")
+            else:
+                flash("Aucun fichier Excel correspondant n'a été trouvé ou mis à jour.", "warning")
+
+        except Exception as e:
+            flash(f"Erreur lors de l'importation du fichier Excel : {e}", "danger")
+    else:
+        flash("Type de fichier non autorisé. Veuillez importer un fichier .xlsx ou .xls.", "danger")
+
+    return redirect(url_for("administrateur_bp.dashboard"))

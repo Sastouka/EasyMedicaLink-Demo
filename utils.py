@@ -8,8 +8,8 @@
 import os, sys, platform, json, uuid, hashlib, re, copy, base64, io, subprocess, socket, requests
 from datetime import datetime, date, timedelta
 from typing import Optional
-from werkzeug.utils import secure_filename
 import pandas as pd
+from werkzeug.utils import secure_filename # Importation ajoutée pour être explicite
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A5, A4
@@ -42,7 +42,6 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 LOCAL_IP = socket.gethostbyname(socket.gethostname())
 
-BASE_DIR          = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MEDICALINK_FILES")
 EXCEL_FOLDER      = os.path.join(BASE_DIR, "Excel")
 EXCEL_FILE_PATH = os.path.join(EXCEL_FOLDER, "ConsultationData.xlsx")
 CONSULT_FILE_PATH = EXCEL_FILE_PATH  # Si besoin d'un alias
@@ -55,8 +54,8 @@ for _dir in (BASE_DIR, EXCEL_FOLDER, PDF_FOLDER, CONFIG_FOLDER, BACKGROUND_FOLDE
 
 CONFIG_FILE         = os.path.join(CONFIG_FOLDER, "config.json")
 STORAGE_CONFIG_FILE = os.path.join(CONFIG_FOLDER, "storage_config.json")
-PATIENT_BASE_FILE = os.path.join(EXCEL_FOLDER, "info_Base_patient.xlsx")  # Nouveau
-CONSULT_FILE_PATH = os.path.join(EXCEL_FOLDER, "ConsultationData.xlsx")   # Existant
+PATIENT_BASE_FILE = os.path.join(EXCEL_FOLDER, "info_Base_patient.xlsx")
+# CONSULT_FILE_PATH est déjà défini ci-dessus, pas besoin de le redéfinir
 
 background_file: Optional[str] = None
 
@@ -140,11 +139,6 @@ default_radiologies_options = [
     "Radiographie du rachis cervical"
 ]
 
-# ---------------------------------------------------------------------------
-# 4. Configuration & listes par défaut (suite)
-# ---------------------------------------------------------------------------
-# (Assurez vous que cette section suit immédiatement la définition de default_radiologies_options)
-
 certificate_categories = {
     "Attestation de bonne santé": "Je soussigné(e) [Nom du Médecin], Docteur en médecine, atteste par la présente que [Nom du Patient], âgé(e) de [Âge], est en bonne santé générale. Après examen clinique, aucune condition médicale ne contre-indique sa participation à [activité]. Ce certificat est délivré à la demande du patient pour servir et valoir ce que de droit.",
     "Certificat de maladie": "Je soussigné(e) [Nom du Médecin], certifie que [Nom du Patient], âgé(e) de [Âge], présente des symptômes compatibles avec [diagnostic]. En conséquence, il/elle nécessite un repos médical et est dispensé(e) de toute activité professionnelle ou scolaire pour une durée de [X] jours à compter du [Date].",
@@ -204,27 +198,22 @@ Fait à [Lieu], le [Date]."""
 # 5. Gestion des patients (Excel)
 # ---------------------------------------------------------------------------
 patient_ids, patient_names = [], []
-patient_id_to_name = {}
-patient_name_to_id = {}
-patient_name_to_age = {}
+patient_id_to_name = {} # Nom Complet
+patient_name_to_id = {} # Nom Complet -> ID
 patient_id_to_age = {}
-patient_name_to_phone = {}
 patient_id_to_phone = {}
-patient_name_to_antecedents = {}
 patient_id_to_antecedents = {}
-patient_name_to_dob = {}
 patient_id_to_dob = {}
-patient_name_to_gender = {}
 patient_id_to_gender = {}
+patient_id_to_nom = {}    # Nom de famille
+patient_id_to_prenom = {} # Prénom
 
 def load_patient_data():
     global patient_ids, patient_names
     global patient_id_to_name, patient_name_to_id
-    global patient_name_to_age, patient_id_to_age
-    global patient_name_to_phone, patient_id_to_phone
-    global patient_name_to_antecedents, patient_id_to_antecedents
-    global patient_name_to_dob, patient_id_to_dob
-    global patient_name_to_gender, patient_id_to_gender
+    global patient_id_to_age, patient_id_to_phone, patient_id_to_antecedents
+    global patient_id_to_dob, patient_id_to_gender
+    global patient_id_to_nom, patient_id_to_prenom
 
     # Fichiers sources distincts
     PATIENT_BASE_FILE = os.path.join(EXCEL_FOLDER, 'info_Base_patient.xlsx')  # Données de base
@@ -234,71 +223,148 @@ def load_patient_data():
     def reset_globals():
         patient_ids.clear(); patient_names.clear()
         patient_id_to_name.clear(); patient_name_to_id.clear()
-        patient_name_to_age.clear(); patient_id_to_age.clear()
-        patient_name_to_phone.clear(); patient_id_to_phone.clear()
-        patient_name_to_antecedents.clear(); patient_id_to_antecedents.clear()
-        patient_name_to_dob.clear(); patient_id_to_dob.clear()
-        patient_name_to_gender.clear(); patient_id_to_gender.clear()
+        patient_id_to_age.clear(); patient_id_to_phone.clear(); patient_id_to_antecedents.clear()
+        patient_id_to_dob.clear(); patient_id_to_gender.clear()
+        patient_id_to_nom.clear(); patient_id_to_prenom.clear()
+        print("DEBUG: Toutes les données patient globales ont été réinitialisées.")
 
-    # 1. Chargement des données de base patients
+    # Toujours réinitialiser les globales au début de load_patient_data pour assurer un état propre
+    reset_globals()
+
+    # 1. Chargement des données de base patients (info_Base_patient.xlsx)
     if not os.path.exists(PATIENT_BASE_FILE):
-        reset_globals()
-        return
+        print(f"DEBUG: Fichier de base patient non trouvé: {PATIENT_BASE_FILE}. Les données patient ne seront pas chargées depuis ce fichier.")
+    else:
+        try:
+            df_base = pd.read_excel(PATIENT_BASE_FILE, sheet_name=0, dtype=str).fillna('')
+            print(f"DEBUG: df_base (info_Base_patient.xlsx) chargé avec {len(df_base)} lignes.")
+            print(f"DEBUG: Colonnes de df_base avant renommage: {df_base.columns.tolist()}")
 
-    try:
-        # Lecture du fichier de base patients
-        df_base = pd.read_excel(PATIENT_BASE_FILE, sheet_name=0, dtype=str).fillna('')
-        
-        # Vérification des colonnes requises
-        required_columns = {
-            'patient_id', 'patient_name', 'date_of_birth',
-            'gender', 'age', 'patient_phone', 'antecedents'
-        }
-        
-        if not required_columns.issubset(df_base.columns):
-            reset_globals()
-            return
+            # Définir le mappage des colonnes attendues dans info_Base_patient.xlsx vers les noms internes
+            column_mapping = {
+                'ID': 'patient_id',
+                'Nom': 'nom', # Nom de famille
+                'Prenom': 'prenom', # Prénom
+                'DateNaissance': 'date_of_birth',
+                'Sexe': 'gender',
+                'Âge': 'age',
+                'Téléphone': 'patient_phone',
+                'Antécédents': 'antecedents'
+            }
+            
+            # Renommer les colonnes pour qu'elles correspondent aux noms internes
+            df_base_renamed = df_base.rename(columns=column_mapping)
+            print(f"DEBUG: Colonnes de df_base après renommage: {df_base_renamed.columns.tolist()}")
+            
+            # Vérification des colonnes requises APRES renommage
+            # patient_name sera construit, donc pas une colonne requise directe ici
+            required_internal_columns = set(column_mapping.values())
+            missing_columns = required_internal_columns.difference(df_base_renamed.columns)
+            if missing_columns:
+                print(f"ATTENTION: Colonnes internes requises manquantes dans info_Base_patient.xlsx: {missing_columns}. Certaines données patient pourraient être incomplètes.")
+            
+            # Nettoyage et population des mappings globaux
+            for _, row in df_base_renamed.iterrows():
+                pid = str(row['patient_id']).strip() if 'patient_id' in row else None
+                if pid:
+                    nom = str(row.get('nom', '')).strip()
+                    prenom = str(row.get('prenom', '')).strip()
+                    full_name = f"{nom} {prenom}".strip()
 
-        # Nettoyage des données
-        df_base['patient_id'] = df_base['patient_id'].astype(str).str.strip()
-        df_base['patient_name'] = df_base['patient_name'].astype(str).str.strip()
-        
-        # Dernière entrée pour l'onglet "Données de base"
-        last_patient_entry = df_base.iloc[-1] if not df_base.empty else None
+                    patient_id_to_name[pid] = full_name
+                    patient_id_to_nom[pid] = nom
+                    patient_id_to_prenom[pid] = prenom
+                    patient_id_to_age[pid] = str(row.get('age', '')).strip()
+                    patient_id_to_phone[pid] = str(row.get('patient_phone', '')).strip()
+                    patient_id_to_antecedents[pid] = str(row.get('antecedents', '')).strip()
+                    patient_id_to_dob[pid] = str(row.get('date_of_birth', '')).strip()
+                    patient_id_to_gender[pid] = str(row.get('gender', '')).strip()
 
-        # 2. Chargement des données de suivi (consultations)
-        consult_data = {}
-        if os.path.exists(CONSULT_FILE_PATH):
-            df_consult = pd.read_excel(CONSULT_FILE_PATH, sheet_name=0, dtype=str)
-            df_consult['consultation_date'] = df_consult['consultation_date'].str[:10]  # Garder seulement la date
-            consult_data = df_consult.groupby(['patient_id', 'consultation_date']).last().reset_index()
+                    if pid not in patient_ids:
+                        patient_ids.append(pid)
+                    if full_name and full_name not in patient_names:
+                        patient_names.append(full_name)
+                    if full_name: # Assurez-vous que le nom complet n'est pas vide
+                        patient_name_to_id[full_name] = pid # Mappage Nom Complet -> ID
 
-        # Mise à jour des variables globales
-        patient_ids = sorted(df_base['patient_id'].unique().tolist(), key=str.lower)
-        patient_names = sorted(df_base['patient_name'].unique().tolist(), key=str.lower)
-        
-        # Mapping des données de base
-        for _, row in df_base.iterrows():
-            pid = str(row['patient_id'])
-            patient_id_to_name[pid] = row['patient_name']
-            patient_id_to_age[pid] = row['age']
-            patient_id_to_phone[pid] = row['patient_phone']
-            patient_id_to_antecedents[pid] = row['antecedents']
-            patient_id_to_dob[pid] = row['date_of_birth']
-            patient_id_to_gender[pid] = row['gender']
+            print(f"DEBUG: Données chargées depuis info_Base_patient.xlsx.")
+            print(f"DEBUG: patient_id_to_name (Nom Complet) ex: {list(patient_id_to_name.items())[:2]}")
+            print(f"DEBUG: patient_id_to_nom (Nom) ex: {list(patient_id_to_nom.items())[:2]}")
+            print(f"DEBUG: patient_id_to_prenom (Prénom) ex: {list(patient_id_to_prenom.items())[:2]}")
 
-            # Fusion avec dernières consultations si existantes
-            if pid in consult_data:
-                consult = consult_data[consult_data['patient_id'] == pid].iloc[0] # Get the specific row for the patient
-                patient_id_to_age[pid] = consult.get('age', row['age'])
-                patient_id_to_antecedents[pid] = consult.get('antecedents', row['antecedents'])
+        except Exception as e:
+            print(f"ERREUR: Erreur de chargement ou de traitement des données patient depuis info_Base_patient.xlsx: {str(e)}")
 
-        # Création des mappings inverses nom -> ID
-        patient_name_to_id = {v: k for k, v in patient_id_to_name.items()}
+    # 2. Chargement et fusion des données de suivi (ConsultationData.xlsx)
+    if os.path.exists(CONSULT_FILE_PATH):
+        try:
+            df_consult = pd.read_excel(CONSULT_FILE_PATH, sheet_name=0, dtype=str).fillna('')
+            print(f"DEBUG: df_consult (ConsultationData.xlsx) chargé avec {len(df_consult)} lignes.")
+            print(f"DEBUG: Colonnes de df_consult: {df_consult.columns.tolist()}")
 
-    except Exception as e:
-        print(f"Erreur de chargement des données: {str(e)}")
-        reset_globals()
+            if 'consultation_date' in df_consult.columns:
+                df_consult['consultation_date'] = pd.to_datetime(df_consult['consultation_date'].astype(str).str[:10], errors='coerce')
+                df_consult = df_consult.dropna(subset=['consultation_date'])
+                df_consult = df_consult.sort_values(by='consultation_date')
+                consult_data_latest = df_consult.groupby('patient_id').last().to_dict(orient='index')
+                print(f"DEBUG: consult_data_latest chargé avec {len(consult_data_latest)} entrées pour la fusion.")
+
+                for pid, consult_info in consult_data_latest.items():
+                    pid = str(pid).strip() # Assurez-vous que l'ID est une chaîne propre
+
+                    # Mettre à jour/ajouter les données, en donnant la priorité aux données existantes
+                    # de info_Base_patient si elles sont plus complètes.
+                    # Sinon, utiliser les données de la dernière consultation.
+
+                    # Nom et Prénom (séparés)
+                    consult_nom = str(consult_info.get('nom', '')).strip()
+                    consult_prenom = str(consult_info.get('prenom', '')).strip()
+                    
+                    patient_id_to_nom[pid] = patient_id_to_nom.get(pid) or consult_nom
+                    patient_id_to_prenom[pid] = patient_id_to_prenom.get(pid) or consult_prenom
+                    
+                    # Nom Complet (patient_name)
+                    derived_full_name_from_consult = f"{patient_id_to_nom[pid]} {patient_id_to_prenom[pid]}".strip()
+                    patient_id_to_name[pid] = patient_id_to_name.get(pid) or derived_full_name_from_consult or str(consult_info.get('patient_name', '')).strip()
+
+                    # Autres champs
+                    patient_id_to_age[pid] = patient_id_to_age.get(pid) or str(consult_info.get('age', '')).strip()
+                    patient_id_to_phone[pid] = patient_id_to_phone.get(pid) or str(consult_info.get('patient_phone', '')).strip()
+                    patient_id_to_antecedents[pid] = patient_id_to_antecedents.get(pid) or str(consult_info.get('antecedents', '')).strip()
+                    patient_id_to_dob[pid] = patient_id_to_dob.get(pid) or str(consult_info.get('date_of_birth', '')).strip()
+                    patient_id_to_gender[pid] = patient_id_to_gender.get(pid) or str(consult_info.get('gender', '')).strip()
+
+                    # Ajouter l'ID et le nom complet aux listes si ce sont de nouveaux patients
+                    if pid not in patient_ids:
+                        patient_ids.append(pid)
+                    if patient_id_to_name.get(pid) and patient_id_to_name[pid] not in patient_names:
+                        patient_names.append(patient_id_to_name[pid])
+                    if patient_id_to_name.get(pid): # Mappage Nom Complet -> ID
+                        patient_name_to_id[patient_id_to_name[pid]] = pid
+
+            else:
+                print("DEBUG: La colonne 'consultation_date' est manquante dans ConsultationData.xlsx. Impossible de trier par date.")
+
+        except Exception as e:
+            print(f"ERREUR: Erreur lors du chargement ou du traitement de ConsultationData.xlsx: {str(e)}")
+    else:
+        print(f"DEBUG: Fichier de consultation non trouvé: {CONSULT_FILE_PATH}. Les données de consultation ne seront pas fusionnées.")
+
+    # Finalisation des listes et mappings après toutes les fusions
+    patient_ids = sorted(list(set(patient_ids)), key=str.lower)
+    patient_names = sorted(list(set(patient_names)), key=str.lower)
+    # Reconstruire patient_name_to_id pour s'assurer qu'il est cohérent avec patient_id_to_name
+    patient_name_to_id.clear()
+    for pid, name in patient_id_to_name.items():
+        if name:
+            patient_name_to_id[name] = pid
+
+    print(f"DEBUG: patient_ids finaux chargés: {patient_ids[:5] if patient_ids else 'Vide'}...")
+    print(f"DEBUG: patient_names finaux chargés: {patient_names[:5] if patient_names else 'Vide'}...")
+    print(f"DEBUG: patient_id_to_name final (exemples): {list(patient_id_to_name.items())[:2] if patient_id_to_name else 'Vide'}...")
+    print(f"DEBUG: patient_id_to_nom final (exemples): {list(patient_id_to_nom.items())[:2] if patient_id_to_nom else 'Vide'}...")
+    print(f"DEBUG: patient_id_to_prenom final (exemples): {list(patient_id_to_prenom.items())[:2] if patient_id_to_prenom else 'Vide'}...")
+
 
 # Chargement initial
 load_patient_data()
@@ -471,24 +537,25 @@ def generate_pdf_file(save_path: str, form_data: dict,
     has_content = False
     def add_section(stitle, items):
         nonlocal has_content
-        if items and any(i.strip() for i in items):
+        # Vérifie si la liste d'éléments n'est pas vide et contient au moins un élément non vide après nettoyage
+        if items and any(item.strip() for item in items):
             if has_content:
                 c.showPage()
                 if background_file and background_file.lower().endswith(('.png','.jpg','.jpeg','.gif','.bmp')):
                     apply_background(c, width, height)
             draw_header(c, stitle)
             y = height - header_margin - 130
-            y = draw_list(stitle, items, y, c, left_margin, footer_margin, height)
+            # Filtre les éléments vides avant de les dessiner
+            filtered_items = [item.strip() for item in items if item.strip()]
+            y = draw_list(stitle, filtered_items, y, c, left_margin, footer_margin, height)
             draw_signature(c, y)
             has_content = True
 
     # Sections ordonnance/analyses/radiologies
-    if medication_list:
-        add_section("Ordonnance Médicale", medication_list)
-    if analyses_list:
-        add_section("Analyses", analyses_list)
-    if radiologies_list:
-        add_section("Radiologies", radiologies_list)
+    # Suppression de la logique qui ajoute des exemples si les listes sont vides
+    add_section("Ordonnance Médicale", medication_list)
+    add_section("Analyses", analyses_list)
+    add_section("Radiologies", radiologies_list)
 
     # Section consultation
     if any([clinical_signs, bp, temperature, heart_rate, respiratory_rate, diagnosis]):
@@ -498,10 +565,11 @@ def generate_pdf_file(save_path: str, form_data: dict,
                 apply_background(c, width, height)
         draw_header(c, "Consultation")
         y0 = height - header_margin - 130
-        c.setFont("Helvetica-Bold",12); c.drawString(left_margin, y0, "Signes Cliniques / Motifs de Consultation :")
-        y0 -= 20
-        c.setFont("Helvetica",10)
-        y0 = draw_multiline(c, clinical_signs, left_margin, y0, max_line_width, footer_margin, height)
+        if clinical_signs: # Ajout de cette condition
+            c.setFont("Helvetica-Bold",12); c.drawString(left_margin, y0, "Signes Cliniques / Motifs de Consultation :")
+            y0 -= 20
+            c.setFont("Helvetica",10)
+            y0 = draw_multiline(c, clinical_signs, left_margin, y0, max_line_width, footer_margin, height)
         if any([bp, temperature, heart_rate, respiratory_rate]):
             c.setFont("Helvetica-Bold",12); c.drawString(left_margin, y0, "Paramètres Vitaux :")
             y0 -= 20
@@ -514,7 +582,7 @@ def generate_pdf_file(save_path: str, form_data: dict,
                 c.drawString(left_margin+20, y0, f"Fréquence Cardiaque : {heart_rate} bpm"); y0 -= 15
             if respiratory_rate:
                 c.drawString(left_margin+20, y0, f"Fréquence Respiratoire : {respiratory_rate} rpm"); y0 -= 15
-        if diagnosis:
+        if diagnosis: # Ajout de cette condition
             c.setFont("Helvetica-Bold",12); c.drawString(left_margin, y0, "Diagnostic :"); y0 -= 20
             c.setFont("Helvetica",10)
             y0 = draw_multiline(c, diagnosis, left_margin, y0, max_line_width, footer_margin, height)
@@ -578,8 +646,15 @@ def generate_history_pdf_file(pdf_path: str, df_filtered: pd.DataFrame):
 
     if not df_filtered.empty:
         row0 = df_filtered.iloc[0]
+        # Utiliser 'nom' et 'prenom' si disponibles, sinon 'patient_name'
+        patient_full_name = ""
+        if pd.notnull(row0.get('nom')) and pd.notnull(row0.get('prenom')):
+            patient_full_name = f"{str(row0.get('nom')).strip()} {str(row0.get('prenom')).strip()}"
+        elif pd.notnull(row0.get('patient_name')):
+            patient_full_name = str(row0.get('patient_name')).strip()
+
         title = (
-            f"Historique des Consultations de {str(row0.get('patient_name', '')).strip()} "
+            f"Historique des Consultations de {patient_full_name} "
             f"(ID: {str(row0.get('patient_id', '')).strip()}, Age: {str(row0.get('age', '')).strip()}, Sexe: {str(row0.get('gender', '')).strip()}, "
             f"Téléphone: {str(row0.get('patient_phone', '')).strip()}, Antécédents: {str(row0.get('antecedents', '')).strip()})"
         )
@@ -588,36 +663,39 @@ def generate_history_pdf_file(pdf_path: str, df_filtered: pd.DataFrame):
         for _, row in df_filtered.iterrows():
             elements.append(Paragraph(f"Date : {str(row.get('consultation_date', '')).strip()}", style_sub))
             elements.append(Spacer(1, 6))
-            if pd.notnull(row.get("clinical_signs")):
+            if pd.notnull(row.get("clinical_signs")) and str(row["clinical_signs"]).strip(): # Ajout de la condition pour vérifier si le champ est vide
                 elements.append(Paragraph("<b>Signes Cliniques / Motifs :</b>", style_normal))
                 elements.append(Paragraph(str(row["clinical_signs"]).strip(), style_normal)) # Ensure string conversion
             vitals = []
-            if pd.notnull(row.get("bp")): vitals.append(f"TA: {str(row.bp).strip()} mmHg")
-            if pd.notnull(row.get("temperature")): vitals.append(f"T°: {str(row.temperature).strip()} °C")
-            if pd.notnull(row.get("heart_rate")): vitals.append(f"FC: {str(row.heart_rate).strip()} bpm")
-            if pd.notnull(row.get("respiratory_rate")): vitals.append(f"FR: {str(row.respiratory_rate).strip()} rpm")
+            if pd.notnull(row.get("bp")) and str(row.bp).strip(): vitals.append(f"TA: {str(row.bp).strip()} mmHg")
+            if pd.notnull(row.get("temperature")) and str(row.temperature).strip(): vitals.append(f"T°: {str(row.temperature).strip()} °C")
+            if pd.notnull(row.get("heart_rate")) and str(row.heart_rate).strip(): vitals.append(f"FC: {str(row.heart_rate).strip()} bpm")
+            if pd.notnull(row.get("respiratory_rate")) and str(row.respiratory_rate).strip(): vitals.append(f"FR: {str(row.respiratory_rate).strip()} rpm")
             if vitals:
                 elements.append(Paragraph("<b>Paramètres Vitaux :</b> " + "; ".join(vitals), style_normal))
-            if pd.notnull(row.get("diagnosis")):
+            if pd.notnull(row.get("diagnosis")) and str(row['diagnosis']).strip(): # Ajout de la condition pour vérifier si le champ est vide
                 elements.append(Paragraph(f"<b>Diagnostic :</b> {str(row['diagnosis']).strip()}", style_normal))
             if pd.notnull(row.get("medications")):
-                elements.append(Paragraph("<b>Médicaments prescrits :</b>", style_normal))
-                for m in str(row.medications).split("; "):
-                    if m.strip(): # S'assurer que l'élément n'est pas vide
-                        elements.append(Paragraph(f"- {m.strip()}", style_normal))
+                meds = [m.strip() for m in str(row.medications).split("; ") if m.strip()]
+                if meds: # Vérifier si la liste filtrée n'est pas vide
+                    elements.append(Paragraph("<b>Médicaments prescrits :</b>", style_normal))
+                    for m in meds:
+                        elements.append(Paragraph(f"- {m}", style_normal))
             if pd.notnull(row.get("analyses")):
-                elements.append(Paragraph("<b>Analyses demandées :</b>", style_normal))
-                for a in str(row.analyses).split("; "):
-                    if a.strip(): # S'assurer que l'élément n'est pas vide
-                        elements.append(Paragraph(f"- {a.strip()}", style_normal))
+                analyses = [a.strip() for a in str(row.analyses).split("; ") if a.strip()]
+                if analyses: # Vérifier si la liste filtrée n'est pas vide
+                    elements.append(Paragraph("<b>Analyses demandées :</b>", style_normal))
+                    for a in analyses:
+                        elements.append(Paragraph(f"- {a}", style_normal))
             if pd.notnull(row.get("radiologies")):
-                elements.append(Paragraph("<b>Radiologies demandées :</b>", style_normal))
-                for r in str(row.radiologies).split("; "):
-                    if r.strip(): # S'assurer que l'élément n'est pas vide
-                        elements.append(Paragraph(f"- {r.strip()}", style_normal))
-            if pd.notnull(row.get("certificate_category")):
+                radios = [r.strip() for r in str(row.radiologies).split("; ") if r.strip()]
+                if radios: # Vérifier si la liste filtrée n'est pas vide
+                    elements.append(Paragraph("<b>Radiologies demandées :</b>", style_normal))
+                    for r in radios:
+                        elements.append(Paragraph(f"- {r}", style_normal))
+            if pd.notnull(row.get("certificate_category")) and str(row['certificate_category']).strip(): # Ajout de la condition pour vérifier si le champ est vide
                 elements.append(Paragraph(f"<b>Certificat :</b> {str(row['certificate_category']).strip()}", style_normal))
-            if pd.notnull(row.get("rest_duration")):
+            if pd.notnull(row.get("rest_duration")) and str(row['rest_duration']).strip(): # Ajout de la condition pour vérifier si le champ est vide
                 elements.append(Paragraph(f"<b>Durée du repos :</b> {str(row['rest_duration']).strip()} jours", style_normal))
             if pd.notnull(row.get("doctor_comment")) and str(row['doctor_comment']).strip():
                 elements.append(Paragraph("<b>Commentaire :</b>", style_normal))

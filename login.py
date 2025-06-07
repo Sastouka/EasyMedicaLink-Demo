@@ -446,6 +446,11 @@ register_template = '''
           <input type="text" name="address" class="form-control form-control-lg" required>
         </div>
       </div>
+      <div class="mb-3">
+        <label class="form-label small"><i class="fas fa-phone me-2"></i>Téléphone</label>
+        <input type="tel" name="phone" class="form-control form-control-lg" placeholder="+212XXXXXXXXX" required pattern="^\+\d{9,}$">
+        <div class="form-text text-muted">Le numéro de téléphone doit commencer par un '+' et contenir au moins 9 chiffres.</div>
+      </div>
       <button type="submit" class="btn btn-medical btn-lg w-100">S'enregistrer</button>
     </form>
     <div class="text-center mt-3">
@@ -613,6 +618,11 @@ forgot_template = '''
         <label class="form-label small"><i class="fas fa-map-marker-alt me-2"></i>Adresse</label>
         <input type="text" name="address" class="form-control form-control-lg" required>
       </div>
+      <div class="mb-3">
+        <label class="form-label small"><i class="fas fa-phone me-2"></i>Téléphone</label>
+        <input type="tel" name="phone" class="form-control form-control-lg" placeholder="+212XXXXXXXXX" required pattern="^\+\d{9,}$">
+        <div class="form-text text-muted">Le numéro de téléphone doit commencer par un '+' et contenir au moins 9 chiffres.</div>
+      </div>
       <button type="submit" class="btn btn-medical btn-lg w-100">Valider</button>
     </form>
     <div class='contact-info'>
@@ -624,7 +634,6 @@ forgot_template = '''
   <div class="signature">
     Développé par SastoukaDigital
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 '''
@@ -671,17 +680,22 @@ def register():
     if request.method == "POST":
         users = load_users()
         email = f["email"].lower()
+        phone = f["phone"].strip() # Récupérer le numéro de téléphone
+
         if email in users:
             flash("Email déjà enregistré.","danger")
         elif f["password"] != f["confirm"]:
             flash("Les mots de passe ne correspondent pas.","danger")
+        elif not phone.startswith('+') or len(phone) < 10: # Validation du numéro de téléphone
+            flash("Le numéro de téléphone doit commencer par '+' et contenir au moins 9 chiffres.","danger")
         else:
             users[email] = {
                 "password":      hash_password(f["password"]),
                 "role":          f["role"],
                 "clinic":        f["clinic"],
                 "creation_date": f["creation_date"],
-                "address":       f["address"]
+                "address":       f["address"],
+                "phone":         phone # Sauvegarder le numéro de téléphone
             }
             save_users(users)
             flash("Compte créé.","success")
@@ -697,13 +711,15 @@ def forgot_password():
         clinic        = request.form['clinic']
         creation_date = request.form['creation_date']
         address       = request.form['address']
+        phone         = request.form['phone'].strip() # Récupérer le numéro de téléphone
         users         = load_users()
         user          = users.get(email)
 
         if (user
             and user.get('clinic') == clinic
             and user.get('creation_date') == creation_date
-            and user.get('address') == address):
+            and user.get('address') == address
+            and user.get('phone') == phone): # Ajouter la vérification du numéro de téléphone
             token  = generate_reset_token()
             expiry = (datetime.now() + timedelta(hours=1)).isoformat()
 
