@@ -13,6 +13,8 @@ pwa_bp = Blueprint(
     url_prefix=""
 )
 
+# BASE_DIR for PWA assets remains static as PWA assets are globally accessible
+# and not specific to an admin's dynamic folder.
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 ICON_DIR = BASE_DIR / "static" / "pwa"
 ICON_DIR.mkdir(parents=True, exist_ok=True)
@@ -21,7 +23,7 @@ ICON_DIR.mkdir(parents=True, exist_ok=True)
 def _manifest():
     return {
         "name":             "EasyMedicalink",
-        "short_name":       "Medicalink",
+        "short_name":       "EML",
         "start_url":        "/login",
         "scope":            "/",
         "display":          "standalone",
@@ -52,6 +54,7 @@ def manifest():
 
 @pwa_bp.route("/sw.js")
 def sw():
+    # PWA service worker URLs, typically static and don't depend on dynamic user folders
     urls = [
         url_for("pwa_bp.manifest"),
         url_for("pwa_bp.sw"),
