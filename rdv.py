@@ -13,6 +13,7 @@ Blueprint RDV – version mise à jour avec calcul automatique de l'âge
 • Améliorations esthétiques majeures pour une interface plus moderne et attrayante
 • Correction de la visibilité des boutons blancs
 • Correction de l'affichage du nom et prénom du patient lors de la sélection d'un ID existant.
+• Ajout du menu des paramètres de la page d'accueil, y compris le message d'alerte.
 """
 
 import os
@@ -33,7 +34,7 @@ from flask import (
 import utils
 import theme
 
-# Ces variables seront définies dynamiquement une fois set_dynamic_base_dir est appelé
+# These variables will be dynamically defined once set_dynamic_base_dir is called
 EXCEL_DIR: Optional[Path] = None
 PDF_DIR: Optional[Path] = None
 EXCEL_FILE: Optional[Path] = None
@@ -41,7 +42,7 @@ CONSULT_FILE: Optional[Path] = None
 BASE_PATIENT_FILE: Optional[Path] = None
 
 # ------------------------------------------------------------------
-# CONFIGURATION DES RÉPERTOIRES
+# DIRECTORY CONFIGURATION
 # ------------------------------------------------------------------
 def set_rdv_dirs():
     """Sets the dynamic directory paths for RDV blueprint."""
@@ -80,7 +81,7 @@ def backup_info_base_patient():
 
 
 def initialize_base_patient_file():
-    """Initialise le fichier info_Base_patient.xlsx avec les colonnes unifiées."""
+    """Initialises the info_Base_patient.xlsx file with unified columns."""
     if BASE_PATIENT_FILE is None:
         print("ERROR: BASE_PATIENT_FILE not set. Cannot initialize base patient file.")
         return
@@ -88,7 +89,7 @@ def initialize_base_patient_file():
     wb = Workbook()
     sheet = wb.active
     sheet.title = "BasePatients"
-    # --- MODIFICATION: Noms de colonnes unifiés ---
+    # --- MODIFICATION: Unified column names ---
     sheet.append([
         "ID", "Nom", "Prenom", "DateNaissance", "Sexe", "Âge",
         "Antécédents", "Téléphone"
@@ -99,7 +100,7 @@ def initialize_base_patient_file():
 
 
 def save_base_patient_df(df_new: pd.DataFrame):
-    """Sauvegarde ou met à jour les données dans info_Base_patient.xlsx."""
+    """Saves or updates data in info_Base_patient.xlsx."""
     if BASE_PATIENT_FILE is None:
         print("ERROR: BASE_PATIENT_FILE not set. Cannot save base patient dataframe.")
         return
@@ -109,21 +110,21 @@ def save_base_patient_df(df_new: pd.DataFrame):
         df_existing = pd.DataFrame(columns=[
             "ID", "Nom", "Prenom", "DateNaissance", "Sexe", "Âge",
             "Antécédents", "Téléphone"
-        ]) # Assurer les colonnes si le fichier vient d'être créé
+        ]) # Ensure columns if file just created
     else:
         df_existing = pd.read_excel(BASE_PATIENT_FILE, dtype=str).fillna('')
 
-    # S'assurer que df_new a les colonnes attendues pour info_Base_patient
+    # Ensure df_new has the expected columns for info_Base_patient
     expected_cols = ["ID", "Nom", "Prenom", "DateNaissance", "Sexe", "Âge", "Antécédents", "Téléphone"]
     for col in expected_cols:
         if col not in df_new.columns:
-            df_new[col] = '' # Ajouter la colonne si manquante
+            df_new[col] = '' # Add column if missing
 
-    # Filtrer df_new pour ne garder que les colonnes pertinentes pour info_Base_patient
+    # Filter df_new to keep only relevant columns for info_Base_patient
     df_new_filtered = df_new[expected_cols]
 
-    # Concaténer et supprimer les doublons basés sur l'ID
-    # Garder la dernière entrée pour un ID donné (la plus récente)
+    # Concatenate and remove duplicates based on ID
+    # Keep the last entry for a given ID (most recent)
     df_combined = pd.concat([df_existing, df_new_filtered], ignore_index=True)
     if "ID" in df_combined.columns:
         df_combined.drop_duplicates(subset=["ID"], keep="last", inplace=True)
@@ -133,10 +134,10 @@ def save_base_patient_df(df_new: pd.DataFrame):
 
 
 # ------------------------------------------------------------------
-# HELPER EXCEL (pour DonneesRDV.xlsx)
+# EXCEL HELPER (for DonneesRDV.xlsx)
 # ------------------------------------------------------------------
 def initialize_excel_file():
-    """Initialise le fichier DonneesRDV.xlsx avec les colonnes unifiées."""
+    """Initialises the DonneesRDV.xlsx file with unified columns."""
     if EXCEL_FILE is None:
         print("ERROR: EXCEL_FILE not set. Cannot initialize excel file.")
         return
@@ -144,7 +145,7 @@ def initialize_excel_file():
     wb = Workbook()
     sheet = wb.active
     sheet.title = "RDV"
-    # --- MODIFICATION: Noms de colonnes unifiés ---
+    # --- MODIFICATION: Unified column names ---
     sheet.append([
         "Num Ordre", "ID", "Nom", "Prenom", "DateNaissance", "Sexe", "Âge",
         "Antécédents", "Téléphone", "Date", "Heure"
@@ -154,7 +155,7 @@ def initialize_excel_file():
     print(f"DEBUG: Fichier DonneesRDV.xlsx initialisé avec les colonnes unifiées.")
 
 def load_df() -> pd.DataFrame:
-    """Charge le DataFrame depuis DonneesRDV.xlsx, ajoutant les colonnes si manquantes."""
+    """Loads the DataFrame from DonneesRDV.xlsx, adding missing columns if any."""
     if EXCEL_FILE is None:
         print("ERROR: EXCEL_FILE not set. Cannot load dataframe.")
         return pd.DataFrame() # Return empty DataFrame to prevent further errors
@@ -162,48 +163,48 @@ def load_df() -> pd.DataFrame:
     if not EXCEL_FILE.exists():
         initialize_excel_file()
     df = pd.read_excel(EXCEL_FILE, dtype=str).fillna('')
-    # --- MODIFICATION: Assurer la présence des colonnes Nom et Prenom ---
+    # --- MODIFICATION: Ensure presence of Nom and Prenom columns ---
     if 'Nom' not in df.columns:
-        df.insert(loc=2, column='Nom', value='') # Insérer après ID
+        df.insert(loc=2, column='Nom', value='') # Insert after ID
     if 'Prenom' not in df.columns:
-        df.insert(loc=3, column='Prenom', value='') # Insérer après Nom
+        df.insert(loc=3, column='Prenom', value='') # Insert after Nom
     if 'DateNaissance' not in df.columns:
         df.insert(loc=4, column='DateNaissance', value='')
     if 'Sexe' not in df.columns:
         df.insert(loc=5, column='Sexe', value='')
-    if 'Âge' not in df.columns: # Assurer la colonne Âge
+    if 'Âge' not in df.columns: # Ensure Age column
         df.insert(loc=6, column='Âge', value='')
-    if 'Antécédents' not in df.columns: # Assurer la colonne Antécédents
+    if 'Antécédents' not in df.columns: # Ensure Antecedents column
         df.insert(loc=7, column='Antécédents', value='')
-    if 'Téléphone' not in df.columns: # Assurer la colonne Téléphone
+    if 'Téléphone' not in df.columns: # Ensure Telephone column
         df.insert(loc=8, column='Téléphone', value='')
     # -------------------------------------------------------------------
     return df
 
 def save_df(df: pd.DataFrame):
-    """Sauvegarde le DataFrame dans DonneesRDV.xlsx."""
+    """Saves the DataFrame to DonneesRDV.xlsx."""
     if EXCEL_FILE is None:
         print("ERROR: EXCEL_FILE not set. Cannot save dataframe.")
         return
     df.to_excel(EXCEL_FILE, index=False)
 
 def load_patients() -> dict:
-    """Charge les patients depuis DonneesRDV.xlsx pour la datalist (patient_id)."""
+    """Loads patients from DonneesRDV.xlsx for the datalist (patient_id)."""
     patients = {}
-    df = load_df() # Utilise load_df pour s'assurer que les colonnes sont présentes
+    df = load_df() # Uses load_df to ensure columns are present
     for _, row in df.iterrows():
         pid = str(row["ID"]).strip()
         if not pid:
             continue
-        # --- MODIFICATION: Utiliser Nom et Prenom séparés ---
+        # --- MODIFICATION: Use separate Nom and Prenom ---
         nom = str(row.get('Nom', '')).strip()
         prenom = str(row.get('Prenom', '')).strip()
         full_name = f"{nom} {prenom}".strip()
         # ---------------------------------------------------
         patients[pid] = {
-            "name":          full_name, # Nom complet
-            "nom":           nom,       # Nom de famille
-            "prenom":        prenom,    # Prénom
+            "name":          full_name, # Full name
+            "nom":           nom,       # Last name
+            "prenom":        prenom,    # First name
             "date_of_birth": str(row.get("DateNaissance", "")),
             "gender":        str(row.get("Sexe", "")),
             "age":           str(row.get("Âge", "")),
@@ -213,7 +214,7 @@ def load_patients() -> dict:
     return patients
 
 # ------------------------------------------------------------------
-# CALCULS / VALIDATIONS
+# CALCULATIONS / VALIDATIONS
 # ------------------------------------------------------------------
 def generate_time_slots():
     start = datetime.strptime("08:00", "%H:%M")
@@ -240,12 +241,12 @@ def compute_age_str(dob: date) -> str:
 PHONE_RE = re.compile(r"^[+0]\d{6,14}$")
 
 # ------------------------------------------------------------------
-# DÉCLARATION DU BLUEPRINT
+# BLUEPRINT DECLARATION
 # ------------------------------------------------------------------
 rdv_bp = Blueprint("rdv", __name__, url_prefix="/rdv")
 
 # ------------------------------------------------------------------
-# ROUTE DE TRANSFERT EN CONSULTATION
+# TRANSFER TO CONSULTATION ROUTE
 # ------------------------------------------------------------------
 @rdv_bp.route("/consult/<int:index>", methods=["GET", "POST"])
 def consult_rdv(index):
@@ -254,7 +255,7 @@ def consult_rdv(index):
     utils.set_dynamic_base_dir(admin_email_from_session)
     set_rdv_dirs()
 
-    df_rdv = load_df() # Charge DonneesRDV.xlsx
+    df_rdv = load_df() # Load DonneesRDV.xlsx
     if not (0 <= index < len(df_rdv)):
         return render_template_string("""
         <!DOCTYPE html><html><head>
@@ -274,10 +275,10 @@ def consult_rdv(index):
         """)
     rdv_row = df_rdv.iloc[index]
 
-    # Définir les colonnes attendues dans ConsultationData.xlsx
-    # Ces colonnes doivent correspondre à celles définies dans routes.py pour new_row
+    # Define expected columns in ConsultationData.xlsx
+    # These columns must match those defined in routes.py for new_row
     cols = [
-        "consultation_date", "patient_id", "patient_name", "nom", "prenom", # Ajout de nom et prenom
+        "consultation_date", "patient_id", "patient_name", "nom", "prenom", # Added nom and prenom
         "date_of_birth", "gender", "age", "patient_phone", "antecedents",
         "clinical_signs", "bp", "temperature", "heart_rate",
         "respiratory_rate", "diagnosis", "medications", "analyses", "radiologies",
@@ -307,7 +308,7 @@ def consult_rdv(index):
 
     if CONSULT_FILE.exists():
         df_consult = pd.read_excel(CONSULT_FILE, dtype=str).fillna('')
-        # Assurer que les nouvelles colonnes existent dans df_consult si le fichier existe déjà
+        # Ensure new columns exist in df_consult if the file already exists
         for col in ["nom", "prenom"]:
             if col not in df_consult.columns:
                 df_consult[col] = ''
@@ -321,7 +322,7 @@ def consult_rdv(index):
 
     consultation_date = datetime.now().strftime("%Y-%m-%d")
     
-    # --- MODIFICATION: Récupérer nom et prenom de rdv_row et les passer ---
+    # --- MODIFICATION: Retrieve nom and prenom from rdv_row and pass them ---
     nom_from_rdv = rdv_row.get("Nom", "").strip()
     prenom_from_rdv = rdv_row.get("Prenom", "").strip()
     patient_full_name_from_rdv = f"{nom_from_rdv} {prenom_from_rdv}".strip()
@@ -329,9 +330,9 @@ def consult_rdv(index):
     new_row = {
         "consultation_date":    consultation_date,
         "patient_id":           rdv_row["ID"],
-        "patient_name":         patient_full_name_from_rdv, # Nom complet
-        "nom":                  nom_from_rdv,               # Nom de famille
-        "prenom":               prenom_from_rdv,            # Prénom
+        "patient_name":         patient_full_name_from_rdv, # Full name
+        "nom":                  nom_from_rdv,               # Last name
+        "prenom":               prenom_from_rdv,            # First name
         "date_of_birth":        form.get("patient_dob", rdv_row.get("DateNaissance", "")).strip(),
         "gender":               form.get("gender", rdv_row.get("Sexe", "")).strip(),
         "age":                  form.get("patient_age", rdv_row.get("Âge", "")).strip(),
@@ -353,7 +354,7 @@ def consult_rdv(index):
         "consultation_id":      str(uuid.uuid4()),
     }
 
-    # Assurer que toutes les colonnes de new_row existent dans df_consult avant concaténation
+    # Ensure all columns from new_row exist in df_consult before concatenation
     for col in new_row.keys():
         if col not in df_consult.columns:
             df_consult[col] = ''
@@ -382,7 +383,7 @@ def consult_rdv(index):
     """)
 
 # ------------------------------------------------------------------
-# ROUTE PRINCIPALE RDV
+# MAIN RDV ROUTE
 # ------------------------------------------------------------------
 @rdv_bp.route("/", methods=["GET", "POST"])
 def rdv_home():
@@ -396,16 +397,16 @@ def rdv_home():
     theme_vars   = theme.current_theme()
     theme_names  = list(theme.THEMES.keys())
 
-    df       = load_df() # Charge DonneesRDV.xlsx
-    patients = load_base_patients() # Charge info_Base_patient.xlsx
+    df       = load_df() # Load DonneesRDV.xlsx
+    patients = load_base_patients() # Load info_Base_patient.xlsx
 
     filt_date = request.args.get("date", "")
     iso_today = datetime.now().strftime("%Y-%m-%d")
 
-    # Déterminer la date actuelle pour laquelle les créneaux réservés doivent être affichés
+    # Determine the current date for which reserved slots should be displayed
     current_date_for_slots = filt_date if filt_date else iso_today
 
-    # Calculer les créneaux réservés pour la date actuelle
+    # Calculate reserved slots for the current date
     reserved_slots = df[df["Date"] == current_date_for_slots]["Heure"].tolist()
     print(f"DEBUG: Créneaux réservés pour {current_date_for_slots} : {reserved_slots}") # Debug print
 
@@ -421,7 +422,7 @@ def rdv_home():
         date_rdv  = f.get("rdv_date", "").strip()
         time_rdv  = f.get("rdv_time", "").strip()
 
-        # Le message "Créneau déjà réservé" est géré par SweetAlert directement ici, pas par les messages flash
+        # The "Créneau déjà réservé" message is handled by SweetAlert directly here, not by flash messages
         if ((df["Date"] == date_rdv) & (df["Heure"] == time_rdv)).any():
             return render_template_string("""
             <!DOCTYPE html><html><head>
@@ -440,7 +441,7 @@ def rdv_home():
             </body></html>
             """, date_rdv=date_rdv, time_rdv=time_rdv)
 
-        # --- MODIFICATION: Vérifier tous les champs requis, y compris nom et prenom ---
+        # --- MODIFICATION: Check all required fields, including nom and prenom ---
         if not all([pid, nom, prenom, gender, dob_str, ant, phone, date_rdv, time_rdv]):
             return render_template_string("""
             <!DOCTYPE html><html><head>
@@ -500,11 +501,11 @@ def rdv_home():
             """)
 
         age_text = compute_age_str(dob_date)
-        full_name = f"{nom} {prenom}".strip() # Nom complet pour comparaison
+        full_name = f"{nom} {prenom}".strip() # Full name for comparison
         
-        # Vérification d'unicité de l'ID patient dans la base de patients (info_Base_patient.xlsx)
+        # Check patient ID uniqueness in the patient database (info_Base_patient.xlsx)
         if pid in patients and (
-            patients[pid]["name"].lower() != full_name.lower() # Comparer le nom complet
+            patients[pid]["name"].lower() != full_name.lower() # Compare full name
         ):
             return render_template_string("""
             <!DOCTYPE html><html><head>
@@ -523,17 +524,17 @@ def rdv_home():
             </body></html>
             """, pid=pid, patient_name_exist=patients[pid]['name'])
 
-        # Mise à jour des données du patient dans DonneesRDV.xlsx si l'ID existe
-        # et si des informations de base ont changé
-        if pid in df["ID"].values: # Vérifier si l'ID existe déjà dans DonneesRDV
-            # Trouver l'index de la ligne existante pour cet ID
+        # Update patient data in DonneesRDV.xlsx if the ID exists
+        # and if basic information has changed
+        if pid in df["ID"].values: # Check if ID already exists in DonneesRDV
+            # Find the index of the existing row for this ID
             idx_to_update = df[df["ID"] == pid].index
-            # Mettre à jour toutes les lignes avec cet ID (if multiple RDV for same patient)
+            # Update all rows with this ID (if multiple RDV for same patient)
             df.loc[idx_to_update, [
                 "Nom", "Prenom", "DateNaissance", "Sexe", "Âge", "Téléphone", "Antécédents"
             ]] = [nom, prenom, dob_str, gender, age_text, phone, ant]
         
-        # Préparer la nouvelle ligne pour DonneesRDV.xlsx
+        # Prepare the new row for DonneesRDV.xlsx
         num_ord = calculate_order_number(time_rdv)
         new_rdv_row_data = {
             "Num Ordre": num_ord,
@@ -551,12 +552,12 @@ def rdv_home():
         new_rdv_row_df = pd.DataFrame([new_rdv_row_data], columns=df.columns)
 
         df = pd.concat([df, new_rdv_row_df], ignore_index=True)
-        # Supprimer les doublons basés sur ID, Date et Heure pour DonneesRDV.xlsx
+        # Remove duplicates based on ID, Date and Heure for DonneesRDV.xlsx
         df.drop_duplicates(subset=["ID","Date","Heure"], keep="last", inplace=True)
-        save_df(df) # Sauvegarde DonneesRDV.xlsx
+        save_df(df) # Save DonneesRDV.xlsx
 
-        # Sauvegarder/mettre à jour les données du patient dans info_Base_patient.xlsx
-        # Créer un DataFrame avec les colonnes attendues par save_base_patient_df
+        # Save/update patient data in info_Base_patient.xlsx
+        # Create a DataFrame with columns expected by save_base_patient_df
         patient_base_data = pd.DataFrame([{
             "ID": pid,
             "Nom": nom,
@@ -567,7 +568,7 @@ def rdv_home():
             "Antécédents": ant,
             "Téléphone": phone
         }])
-        save_base_patient_df(patient_base_data) # Sauvegarde info_Base_patient.xlsx
+        save_base_patient_df(patient_base_data) # Save info_Base_patient.xlsx
 
         return render_template_string("""
         <!DOCTYPE html><html><head>
@@ -599,19 +600,19 @@ def rdv_home():
         config=config,
         theme_vars=theme_vars,
         theme_names=theme_names,
-        patients=patients, # patients chargés de info_Base_patient.xlsx
-        df=df_view.to_dict(orient="records"), # df est DonneesRDV.xlsx
+        patients=patients, # patients loaded from info_Base_patient.xlsx
+        df=df_view.to_dict(orient="records"), # df is DonneesRDV.xlsx
         timeslots=generate_time_slots(),
         today=today,
-        iso_today=iso_today, # Ajout de iso_today ici pour l'utilisation dans le template
+        iso_today=iso_today, # Add iso_today here for use in the template
         filt_date=filt_date,
         enumerate=enumerate,
-        reserved_slots=reserved_slots, # Passage des créneaux réservés au template
+        reserved_slots=reserved_slots, # Pass reserved slots to the template
         today_rdv=today_rdv # Pass today's appointments to the template
     )
 
 # ------------------------------------------------------------------
-# SUPPRESSION D’UN RDV
+# DELETE AN APPOINTMENT
 # ------------------------------------------------------------------
 @rdv_bp.route("/delete/<int:index>")
 def delete_rdv(index):
@@ -643,7 +644,7 @@ def delete_rdv(index):
     return redirect(url_for("rdv.rdv_home"))
 
 # ------------------------------------------------------------------
-# IMPRESSION DES RDV DU JOUR
+# PRINT TODAY'S APPOINTMENTS
 # ------------------------------------------------------------------
 @rdv_bp.route("/pdf_today")
 def pdf_today():
@@ -653,7 +654,7 @@ def pdf_today():
     set_rdv_dirs()
 
     try:
-        df = load_df() # Charge DonneesRDV.xlsx
+        df = load_df() # Load DonneesRDV.xlsx
 
         # Add debug prints for the original 'Date' column
         print(f"DEBUG: Original df['Date'] head:\n{df['Date'].head()}")
@@ -846,7 +847,7 @@ def calculate_pdf_column_widths(headers, data, pdf: FPDF):
     return col_widths
 
 # ------------------------------------------------------------------
-# MODIFICATION D’UN RDV
+# MODIFY AN APPOINTMENT
 # ------------------------------------------------------------------
 @rdv_bp.route("/edit/<int:index>", methods=["GET", "POST"])
 def edit_rdv(index):
@@ -946,7 +947,7 @@ def edit_rdv(index):
 
     edit_row = df.iloc[index]
     edit_date = edit_row["Date"]
-    # Pour l'édition, on récupère tous les RDV de cette date sauf celui qu'on est en train d'éditer
+    # For editing, retrieve all appointments for this date except the one being edited
     all_rdv = df.to_dict(orient="records")
     reserved_slots = [
         r["Heure"] for r in all_rdv
@@ -970,12 +971,12 @@ def edit_rdv(index):
         enumerate=enumerate,
         edit_index=index,
         edit_row=edit_row,
-        reserved_slots=reserved_slots, # Passage des créneaux réservés au template pour l'édition
+        reserved_slots=reserved_slots, # Pass reserved slots to the template for editing
         today_rdv=today_rdv # Pass today's appointments to the template
     )
 
 # ------------------------------------------------------------------
-# CHARGEMENT PATIENT_INFO
+# LOAD PATIENT_INFO
 # ------------------------------------------------------------------
 def load_base_patient_df() -> pd.DataFrame:
     # Ensure BASE_PATIENT_FILE is set
@@ -1019,7 +1020,7 @@ def patient_info(patient_id):
     return jsonify(p)
 
 # ------------------------------------------------------------------
-# NOUVELLE ROUTE : Obtenir les créneaux horaires réservés pour une date donnée (pour AJAX)
+# NEW ROUTE: Get reserved time slots for a given date (for AJAX)
 # ------------------------------------------------------------------
 @rdv_bp.route("/get_reserved_slots")
 def get_reserved_slots():
@@ -1037,7 +1038,7 @@ def get_reserved_slots():
 
 
 # ------------------------------------------------------------------
-# TEMPLATE JINJA (interface responsive + menu thème + cartes)
+# JINJA TEMPLATE (responsive interface + theme menu + cards)
 # ------------------------------------------------------------------
 rdv_template = r"""
 <!DOCTYPE html>
@@ -1752,7 +1753,7 @@ rdv_template = r"""
                   {% for t in timeslots %}
                   <option value="{{t}}"
                     {% if edit_row is defined and t == edit_row['Heure'] and t == (filt_date or iso_today) %}selected{% endif %}
-                    {# Condition pour désactiver les créneaux déjà réservés (sauf si c'est le créneau de l'RDV en édition pour la même date) #}
+                    {# Condition to disable already reserved slots (unless it's the appointment being edited for the same date) #}
                     {% if t in reserved_slots and not (edit_row is defined and t == edit_row['Heure'] and (filt_date or iso_today) == edit_row['Date']) %}disabled{% endif %}>
                     {{t}}
                   </option>
@@ -1969,36 +1970,36 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   });
 
-  // Fonction pour mettre à jour les créneaux horaires basés sur la date sélectionnée
+  // Function to update time slots based on the selected date
   function updateTimeSlots(selectedDate) {
       fetch(`/rdv/get_reserved_slots?date=${encodeURIComponent(selectedDate)}`)
           .then(response => response.json())
           .then(data => {
               const rdvTimeSelect = document.getElementById('rdv_time');
-              // timeslots est passé via tojson en Python, donc il est déjà disponible globalement
-              // Si generate_time_slots() est une fonction Python, vous devez la rendre disponible via un champ caché ou tojson
-              // Pour simplifier, nous allons supposer que timeslots est un tableau global ou le passer comme ci-dessous:
-              const allTimeSlots = {{ timeslots | tojson | safe }}; // Passe les créneaux horaires depuis Jinja2
+              // timeslots is passed via tojson in Python, so it's already globally available
+              // If generate_time_slots() is a Python function, you must make it available via a hidden field or tojson
+              // To simplify, we will assume that timeslots is a global array or pass it as below:
+              const allTimeSlots = {{ timeslots | tojson | safe }}; // Pass time slots from Jinja2
 
-              rdvTimeSelect.innerHTML = ''; // Vider les options actuelles
+              rdvTimeSelect.innerHTML = ''; // Clear current options
 
               allTimeSlots.forEach(time => {
                   const option = document.createElement('option');
                   option.value = time;
                   option.textContent = time;
 
-                  // Désactiver si le créneau est réservé pour la date sélectionnée
+                  // Disable if the slot is reserved for the selected date
                   if (data.reserved_slots.includes(time)) {
                       option.disabled = true;
                   }
 
-                  // Si en mode édition, s'assurer que le créneau actuellement édité est sélectionnable
+                  // If in edit mode, make sure the currently edited slot is selectable
                   {% if edit_row is defined %}
                   const editRdvTime = "{{ edit_row['Heure'] }}";
                   const editRdvDate = "{{ edit_row['Date'] }}";
                   if (time === editRdvTime && selectedDate === editRdvDate) {
-                      option.disabled = false; // Réactiver le créneau de l'RDV en cours d'édition
-                      option.selected = true;  // Sélectionner le créneau de l'RDV en cours d'édition
+                      option.disabled = false; // Re-enable the slot of the appointment being edited
+                      option.selected = true;  // Select the slot of the appointment being edited
                   }
                   {% endif %}
 
@@ -2008,21 +2009,31 @@ document.addEventListener('DOMContentLoaded',()=>{
           .catch(error => console.error('Erreur lors de la récupération des créneaux réservés:', error));
   }
 
-  // Écouteur d'événements pour le changement de date du RDV
+  // Event listener for RDV date change
   const rdvDateInput = document.getElementById('rdv_date');
   if (rdvDateInput) {
       rdvDateInput.addEventListener('change', function() {
           updateTimeSlots(this.value);
       });
-      // Appeler updateTimeSlots au chargement initial pour que les créneaux soient corrects
-      // même si la date initiale n'est pas la date du jour ou si la page est en mode édition
+      // Call updateTimeSlots on initial load so that slots are correct
+      // even if the initial date is not today's date or if the page is in edit mode
       updateTimeSlots(rdvDateInput.value);
   }
+
+  // AJAX submission for settings form
+  document.getElementById('settingsForm').addEventListener('submit', e=>{
+    e.preventDefault();
+    fetch(e.target.action,{method:e.target.method,body:new FormData(e.target),credentials:'same-origin'})
+      .then(r=>{ if(!r.ok) throw new Error('Échec réseau'); return r; })
+      .then(()=>Swal.fire({icon:'success',title:'Enregistré',text:'Paramètres sauvegardés.'}).then(()=>location.reload()))
+      .catch(err=>Swal.fire({icon:'error',title:'Erreur',text:err.message}));
+  });
+
 });
 </script>
 
 <script>
-/* Auto-remplissage patient + radio sexe */
+/* Auto-fill patient + gender radio */
 document.getElementById('patient_id').addEventListener('change',function(){
   fetch(`/rdv/patient_info/${encodeURIComponent(this.value)}`)
     .then(r=>r.json())
