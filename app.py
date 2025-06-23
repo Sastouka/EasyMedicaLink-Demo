@@ -164,9 +164,12 @@ def create_app():
     print("Application Flask démarrée et Blueprints enregistrés.")
     return app
 
-# ───────────── 12. Lancement
+# ───────────── Initialisation de l'application pour Gunicorn
+# Cette ligne est déplacée ici pour que 'app' soit disponible au niveau du module
+app = create_app()
+
+# ───────────── 12. Lancement pour le développement local
 if __name__ == '__main__':
-    app = create_app()
     try:
         # Ouvrir dans le navigateur web seulement si pas dans un environnement conteneurisé (comme replit)
         # Ceci est une heuristique ; le déploiement réel pourrait différer.
